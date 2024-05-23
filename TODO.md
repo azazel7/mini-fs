@@ -1,0 +1,31 @@
+- [ ] Make a tests
+    - [ ] Make test to create a file.
+    - [ ] Make test to write a file
+    - [ ] Make test to read a file
+    - [ ] Make test to delete a file
+    - [ ] Make unit test on primitives
+- [ ] Split sector.rs in multiple files.
+- [ ] Make primitive functions in Container
+    - [ ] primitive to read/write sectors
+        - [ ] Use Seek from File to place
+    - [ ] primitive to add new sectors at the end of the file
+    - [ ] primitive to find an empty sector
+    - [ ] primitive to get next sector
+    - [ ] primitive to locate the writing offset to write in a file
+        - [ ] Go through the sector with their size
+        - [ ] Locate the place. 
+        - [ ] A write may concern multiple sectors
+- [ ] Implement notifications*
+    - [ ] Log file given as parameter*
+    - [ ] Try with notify-send crates?
+- [ ] File management
+    - [ ] Add file*
+    - [ ] Delete file
+    - [ ] Read file
+    - [ ] write file
+    - [ ] Open file*
+    - [ ] Close file*
+- [ ] Make directory
+    - [ ] Delete directory
+    - [ ] Readdir
+- [ ] Move constant to Cargo.toml
