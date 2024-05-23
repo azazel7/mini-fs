@@ -20,6 +20,7 @@ pub struct ContainerMetadata {
     root_dir_sector: u64,
     sector_count: u64,
     first_empty_sector: Option<u64>,
+    last_empty_sector: Option<u64>,
     next_ino: u64,
 }
 
@@ -33,6 +34,7 @@ impl Container {
                 root_dir_sector: 0,
                 sector_count: 1,
                 first_empty_sector: None,
+                last_empty_sector: None,
                 next_ino: 2,
             };
             let first_sector = Sector::FileMetadata(FileMetadata::new(1, None));
