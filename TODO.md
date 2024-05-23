@@ -1,8 +1,8 @@
 - [ ] Make a tests
-    - [ ] Make test to create a file.
-    - [ ] Make test to write a file
-    - [ ] Make test to read a file
-    - [ ] Make test to delete a file
+    - [x] Make test to create a file.
+    - [x] Make test to write a file
+    - [x] Make test to read a file
+    - [x] Make test to delete a file
     - [ ] Make unit test on primitives
 - [ ] Split sector.rs in multiple files.
 - [ ] Make primitive functions in Container
