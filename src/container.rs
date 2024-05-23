@@ -154,6 +154,17 @@ impl Container {
         self.write_metadata()?;
         Ok(1)
     }
+    fn get_empty_sector(&mut self) -> Result<u64> {
+        if let Some(empty_sector) = self.metadata.first_empty_sector {
+            return Ok(empty_sector);
+        }
+        self.append_empty_sector()?;
+        if let Some(empty_sector) = self.metadata.first_empty_sector {
+            return Ok(empty_sector);
+        } else {
+            bail!("No empty sector available");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -194,6 +205,16 @@ mod tests {
             assert_eq!(sector.previous(), Some(2));
             assert_eq!(sector.next(), None);
         }
+        remove_file("/tmp/canard").unwrap();
+    }
+    #[test]
+    fn get_empty_sector() {
+        let _ = remove_file("/tmp/canard");
+        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        container.append_empty_sector().unwrap();
+        assert_eq!(container.metadata.sector_count, 2);
+        let empty_sector = container.get_empty_sector().unwrap();
+        assert_eq!(empty_sector, 1);
         remove_file("/tmp/canard").unwrap();
     }
 }
