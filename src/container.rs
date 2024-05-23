@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::{fs::File, io::Write};
 use std::mem::size_of;
@@ -57,5 +57,25 @@ impl Container {
             (file, metadata)
         };
         Ok(Self { container_name , file, metadata})
+    }
+    fn read_sector(&mut self, sector_id : u64) -> Result<Sector> {
+        if sector_id >= self.metadata.sector_count {
+            bail!("Reading out-of-bound sector {sector_id}");
+        }
+        //Seeking
+        let offset = size_of::<ContainerMetadata>() as u64 + sector_id * size_of::<Sector>() as u64;
+        let offset = SeekFrom::Start(offset);
+        self.file.seek(offset)?;
+
+        //Read the sector
+        let mut buff = [0; size_of::<Sector>()];
+        let read_count = self.file.read(&mut buff)?;
+        if read_count < size_of::<Sector>() {
+            bail!("Reading not enough byte for sector {sector_id}.");
+        }
+
+        //Deserialize
+        let sector : Sector = bincode::deserialize(&buff[..])?;
+        Ok(sector)
     }
 }
