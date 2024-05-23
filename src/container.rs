@@ -60,9 +60,9 @@ impl Container {
     }
     fn read_sector(&mut self, sector_id : u64) -> Result<Sector> {
         if sector_id >= self.metadata.sector_count {
-            bail!("Reading out-of-bound sector {sector_id}");
+            bail!("Seeking out-of-bound sector {sector_id}");
         }
-        //Seeking
+        //Skip the metadata and seek
         let offset = size_of::<ContainerMetadata>() as u64 + sector_id * size_of::<Sector>() as u64;
         let offset = SeekFrom::Start(offset);
         self.file.seek(offset)?;
