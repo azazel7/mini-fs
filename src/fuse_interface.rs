@@ -38,7 +38,7 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
     ctime: UNIX_EPOCH,
     crtime: UNIX_EPOCH,
     kind: FileType::RegularFile,
-    perm: 0o644,
+    perm: 0o777,
     nlink: 1,
     uid: 501,
     gid: 20,
@@ -61,7 +61,8 @@ impl FuseFs {
 
 impl Filesystem for FuseFs {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        if parent == 1 && name.to_str() == Some("hello.txt") {
+        eprintln!("lookup name {:?}", name);
+        if parent == 1 && (name.to_str() == Some("hello.txt") || name.to_str() == Some("canard")) {
             reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
         } else {
             reply.error(ENOENT);
@@ -72,6 +73,7 @@ impl Filesystem for FuseFs {
         match ino {
             1 => reply.attr(&TTL, &HELLO_DIR_ATTR),
             2 => reply.attr(&TTL, &HELLO_TXT_ATTR),
+            3 => reply.attr(&TTL, &HELLO_DIR_ATTR), //Canard
             _ => reply.error(ENOENT),
         }
     }
@@ -90,6 +92,8 @@ impl Filesystem for FuseFs {
         if ino == 2 {
             reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
         } else {
+
+            eprintln!("read ino {}", ino);
             reply.error(ENOENT);
         }
     }
@@ -103,13 +107,17 @@ impl Filesystem for FuseFs {
         mut reply: ReplyDirectory,
     ) {
         if ino != 1 {
+            eprintln!("Diff from 1 \n{:?}", _req);
             reply.error(ENOENT);
             return;
         }
 
+        eprintln!("Readdir ino {} {:?}", ino, _req);
+
         let entries = vec![
             (1, FileType::Directory, "."),
             (1, FileType::Directory, ".."),
+            (3, FileType::Directory, "canard"),
             (2, FileType::RegularFile, "hello.txt"),
         ];
 
