@@ -14,10 +14,24 @@ const DATA_CHUNK_SIZE: usize = 200;
 const FILE_NAME_SIZE: usize = 30;
 const DIR_SECTOR_SIZE: usize = 5;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct EmptySector {
     previous: Option<u64>,
     next: Option<u64>,
+}
+impl EmptySector {
+    pub fn set_previous(&mut self, sector_id: u64) {
+        self.previous = Some(sector_id);
+    }
+    pub fn set_next(&mut self, sector_id: u64) {
+        self.next = Some(sector_id);
+    }
+    pub fn previous(&self) -> Option<u64> {
+        self.previous
+    }
+    pub fn next(&self) -> Option<u64> {
+        self.next
+    }
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FileMetadata {
@@ -46,6 +60,16 @@ pub struct FileData {
     previous_sector: u64,
     #[serde_as(as = "Bytes")]
     data: [u8; DATA_CHUNK_SIZE],
+}
+impl FileData {
+    pub fn new() -> Self {
+        FileData {
+            length_data: 0,
+            next_sector: 0,
+            previous_sector: 0,
+            data: [0; DATA_CHUNK_SIZE],
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
