@@ -78,4 +78,22 @@ impl Container {
         let sector : Sector = bincode::deserialize(&buff[..])?;
         Ok(sector)
     }
+    fn write_sector(&mut self, sector_id : u64, sector : &Sector) -> Result<u64> {
+        if sector_id >= self.metadata.sector_count {
+            bail!("Seeking out-of-bound sector {sector_id}");
+        }
+        //Skip the metadata and seek
+        let offset = size_of::<ContainerMetadata>() as u64 + sector_id * size_of::<Sector>() as u64;
+        let offset = SeekFrom::Start(offset);
+        self.file.seek(offset)?;
+
+        //Write the sector
+        let bin = bincode::serialize(sector)?;
+        let written = self.file.write(&bin)?.try_into()?;
+        self.file.flush()?;
+        if written < size_of::<Sector>() as u64 {
+            bail!("Could write all bytes of sector {sector_id}");
+        }
+        Ok(written)
+    }
 }
