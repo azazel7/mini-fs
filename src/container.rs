@@ -1,17 +1,18 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Ok, Result};
+use bincode::Options;
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom};
+use std::mem::size_of;
 use std::path::Path;
 use std::{fs::File, io::Write};
-use std::mem::size_of;
 
-use crate::sector::{FileMetadata, Sector};
+use crate::sector::{self, EmptySector, FileData, FileMetadata, Sector};
 
 pub struct Container {
     container_name: String,
-    file : File,
-    metadata : ContainerMetadata,
+    file: File,
+    metadata: ContainerMetadata,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -36,11 +37,16 @@ impl Container {
             };
             let first_sector = Sector::FileMetadata(FileMetadata::new(1, None));
 
-            let bin = bincode::serialize(&metadata)?;
-            file.write(&bin)?;
-            let bin = bincode::serialize(&first_sector)?;
-            file.write(&bin)?;
-            file.flush()?;
+            let mut buff = Vec::with_capacity(size_of::<ContainerMetadata>());
+            bincode::serialize_into(&mut buff, &metadata)?;
+            buff.resize(size_of::<ContainerMetadata>(), 0);
+            file.write_all(&buff)?;
+
+            let mut buff = Vec::with_capacity(size_of::<Sector>());
+            bincode::serialize_into(&mut buff, &first_sector)?;
+            buff.resize(size_of::<Sector>(), 0);
+            file.write_all(&buff)?;
+
             (file, metadata)
         } else {
             //Load an existing container
@@ -53,12 +59,17 @@ impl Container {
             if read_count < size_of::<ContainerMetadata>() {
                 bail!("The file {container_name} is smaller than the container metadata.");
             }
-            let metadata : ContainerMetadata = bincode::deserialize(&buff[..])?;
+            let metadata: ContainerMetadata = bincode::deserialize(&buff[..])?;
+            eprintln!("Meta data {:?}", metadata);
             (file, metadata)
         };
-        Ok(Self { container_name , file, metadata})
+        Ok(Self {
+            container_name,
+            file,
+            metadata,
+        })
     }
-    fn read_sector(&mut self, sector_id : u64) -> Result<Sector> {
+    fn read_sector(&mut self, sector_id: u64) -> Result<Sector> {
         if sector_id >= self.metadata.sector_count {
             bail!("Seeking out-of-bound sector {sector_id}");
         }
