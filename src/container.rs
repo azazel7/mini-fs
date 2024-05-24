@@ -255,6 +255,11 @@ impl Container {
         };
         let mut next_sector = dir_metadata.first_sector();
 
+        
+        if reply.add(ino, index, FileType::Directory, ".") {
+            return Ok(());
+        }
+
         //Iterate through all sector of directory
         while let Some(sector_id) = next_sector {
             let base_sector = self.read_sector(sector_id)?;
