@@ -244,8 +244,7 @@ impl Container {
         ino: u64,
         _fh: u64,
         offset: i64,
-        reply: &mut ReplyDirectory,
-    ) -> Result<()> {
+    ) -> Result<Vec<(u64, FileType, String)>> {
         let mut index = 0;
 
         // eprintln!("Look for ino {ino}");
@@ -254,11 +253,11 @@ impl Container {
             bail!("Inode {ino} is not a directory.");
         };
         let mut next_sector = dir_metadata.first_sector();
+        let mut entry_list = Vec::new();
 
+        entry_list.push((ino, FileType::Directory, ".".to_string()));
+        entry_list.push((ino, FileType::Directory, "..".to_string()));
         
-        if reply.add(ino, index, FileType::Directory, ".") {
-            return Ok(());
-        }
 
         //Iterate through all sector of directory
         while let Some(sector_id) = next_sector {
@@ -276,16 +275,14 @@ impl Container {
                         sector::FileType::Regular => FileType::RegularFile,
                         sector::FileType::Directory => FileType::Directory,
                     };
-                    if reply.add(entry.ino, index, filetype, entry.name.to_string()) {
-                        return Ok(());
-                    }
+                    entry_list.push((entry.ino, filetype, entry.name.to_string()));
                 }
                 index += 1;
             }
             next_sector = sector.next_sector();
         }
 
-        Ok(())
+        Ok(entry_list)
     }
     pub fn create(&mut self, parent: u64, name: &OsStr) -> Result<u64> {
         let Some(name) = name.to_str() else {

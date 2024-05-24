@@ -112,13 +112,20 @@ impl Filesystem for FuseFs {
         mut reply: ReplyDirectory,
     ) {
         eprintln!("Call to readdir inode:{ino} - {offset}");
-        let ret = self.container.readdir(ino, _fh, offset, &mut reply);
-        // eprintln!("Res {:?}", ret);
+        let ret = self.container.readdir(ino, _fh, offset);
         match ret {
-            Ok(_) => reply.ok(),
             Err(err) => {
                 eprintln!("{err}");
                 reply.error(ENOENT);
+            }
+            Ok(entries) => {
+                for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
+                    // i + 1 means the index of the next entry
+                    if reply.add(entry.0, (i + 1) as i64, entry.1, entry.2) {
+                        break;
+                    }
+                }
+                reply.ok();
             }
         }
     }
