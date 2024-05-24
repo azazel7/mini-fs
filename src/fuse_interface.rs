@@ -1,9 +1,9 @@
-use anyhow::Result;
 use crate::container::Container;
+use anyhow::Result;
 use fuser::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, Request,
 };
-use libc::ENOENT;
+use libc::{ENOENT, ENOSYS};
 use std::ffi::OsStr;
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -18,7 +18,7 @@ const HELLO_DIR_ATTR: FileAttr = FileAttr {
     ctime: UNIX_EPOCH,
     crtime: UNIX_EPOCH,
     kind: FileType::Directory,
-    perm: 0o755,
+    perm: 0o777,
     nlink: 2,
     uid: 501,
     gid: 20,
@@ -73,7 +73,6 @@ impl Filesystem for FuseFs {
         match ino {
             1 => reply.attr(&TTL, &HELLO_DIR_ATTR),
             2 => reply.attr(&TTL, &HELLO_TXT_ATTR),
-            3 => reply.attr(&TTL, &HELLO_DIR_ATTR), //Canard
             _ => reply.error(ENOENT),
         }
     }
@@ -92,9 +91,15 @@ impl Filesystem for FuseFs {
         if ino == 2 {
             reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
         } else {
-
             eprintln!("read ino {}", ino);
             reply.error(ENOENT);
+        }
+    }
+
+    fn opendir(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: fuser::ReplyOpen) {
+        let fd = self.container.opendir(ino);
+        if let Ok(fd) = fd {
+            reply.opened(fd, flags as u32)
         }
     }
 
@@ -106,27 +111,53 @@ impl Filesystem for FuseFs {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        if ino != 1 {
-            eprintln!("Diff from 1 \n{:?}", _req);
-            reply.error(ENOENT);
-            return;
-        }
-
-        eprintln!("Readdir ino {} {:?}", ino, _req);
-
-        let entries = vec![
-            (1, FileType::Directory, "."),
-            (1, FileType::Directory, ".."),
-            (3, FileType::Directory, "canard"),
-            (2, FileType::RegularFile, "hello.txt"),
-        ];
-
-        for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
-            // i + 1 means the index of the next entry
-            if reply.add(entry.0, (i + 1) as i64, entry.1, entry.2) {
-                break;
+        eprintln!("Call to readdir inode:{ino} - {offset}");
+        let ret = self.container.readdir(ino, _fh, offset, &mut reply);
+        // eprintln!("Res {:?}", ret);
+        match ret {
+            Ok(_) => reply.ok(),
+            Err(err) => {
+                eprintln!("{err}");
+                reply.error(ENOENT);
             }
         }
-        reply.ok();
+    }
+
+    fn create(
+        &mut self,
+        _req: &Request<'_>,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+        flags: i32,
+        reply: fuser::ReplyCreate,
+    ) {
+        eprintln!("Call to create");
+        let ret = self.container.create(parent, name);
+        if let Ok(ino) = ret {
+            let attr: FileAttr = FileAttr {
+                ino,
+                size: 0,
+                blocks: 1,
+                atime: UNIX_EPOCH, // 1970-01-01 00:00:00
+                mtime: UNIX_EPOCH,
+                ctime: UNIX_EPOCH,
+                crtime: UNIX_EPOCH,
+                kind: FileType::RegularFile,
+                perm: 0o777,
+                nlink: 1,
+                uid: 501,
+                gid: 20,
+                rdev: 0,
+                flags: 0,
+                blksize: 512,
+            };
+
+            reply.created(&TTL, &attr, 1, 1, flags as u32);
+        } else {
+            eprintln!("{:?}", ret);
+            reply.error(ENOSYS);
+        }
     }
 }
