@@ -36,13 +36,14 @@ fn main() {
     env_logger::init();
     let mountpoint = matches.get_one::<String>("MOUNT_POINT").unwrap();
     let container_name = matches.get_one::<String>("CONTAINER").unwrap();
-    let mut options = vec![MountOption::RO, MountOption::FSName("mini-fs".to_string())];
+    let mut options = vec![MountOption::RW, MountOption::FSName("mini-fs".to_string())];
     if matches.get_flag("auto_unmount") {
         options.push(MountOption::AutoUnmount);
     }
     if matches.get_flag("allow-root") {
         options.push(MountOption::AllowRoot);
     }
+
     //TODO Check error message from here
     let fuse_fs = FuseFs::new(container_name.to_string()).unwrap();
     fuser::mount2(fuse_fs, mountpoint, &options).unwrap();
