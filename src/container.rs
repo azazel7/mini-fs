@@ -393,7 +393,7 @@ impl Container {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::remove_file;
+    use std::{collections::HashSet, fs::remove_file};
 
     #[test]
     fn append_empty_sector() {
@@ -444,8 +444,6 @@ mod tests {
     fn find_ino_sector() {
         let _ = remove_file("/tmp/canard");
         let mut container = Container::new("/tmp/canard".to_string()).unwrap();
-        container.append_empty_sector().unwrap();
-        container.append_empty_sector().unwrap();
         let new_inode = container.create(1, OsStr::new("loutre.txt")).unwrap();
         let (sector_id, _sector) = container.find_ino_sector(1).unwrap();
         assert_eq!(sector_id, 0); //Root directory
@@ -453,6 +451,77 @@ mod tests {
         assert!(ret.is_ok());
         let ret = container.find_ino_sector(37);
         assert!(ret.is_err());
+        remove_file("/tmp/canard").unwrap();
+    }
+    #[test]
+    fn getattr() {
+        let _ = remove_file("/tmp/canard");
+        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        container.append_empty_sector().unwrap();
+        container.append_empty_sector().unwrap();
+        let new_inode = container.create(1, OsStr::new("loutre.txt")).unwrap();
+
+        let filetype = container.getattr(new_inode).unwrap();
+        assert_eq!(filetype, Some(FileType::RegularFile));
+        let filetype = container.getattr(1).unwrap();
+        assert_eq!(filetype, Some(FileType::Directory));
+        let filetype = container.getattr(37);
+        assert!(filetype.is_err());
+        remove_file("/tmp/canard").unwrap();
+    }
+    #[test]
+    fn readdir() {
+        let _ = remove_file("/tmp/canard");
+        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        let inode1 = container.create(1, OsStr::new("loutre.txt")).unwrap();
+        let inode2 = container.create(1, OsStr::new("canard.txt")).unwrap();
+
+        let entries = container.readdir(1, 1, 0).unwrap();
+        let entries_names = entries.iter().map(|e| e.2.clone()).collect::<HashSet<_>>();
+        let entries_inode = entries.iter().map(|e| e.0.clone()).collect::<HashSet<_>>();
+        assert_eq!(entries.len(), 4); //".", "..", "loutre.txt", "canard.txt"
+        assert!(entries_names.contains("."));
+        assert!(entries_names.contains(".."));
+        assert!(entries_names.contains("loutre.txt"));
+        assert!(entries_names.contains("canard.txt"));
+        assert!(entries_inode.contains(&inode1));
+        assert!(entries_inode.contains(&inode2));
+
+        let inode3 = container.create(1, OsStr::new("baleine.txt")).unwrap();
+        let entries = container.readdir(1, 1, 0).unwrap();
+        let entries_names = entries.iter().map(|e| e.2.clone()).collect::<HashSet<_>>();
+        let entries_inode = entries.iter().map(|e| e.0.clone()).collect::<HashSet<_>>();
+        assert_eq!(entries.len(), 5); //  "baleine.txt"
+        assert!(entries_names.contains("."));
+        assert!(entries_names.contains(".."));
+        assert!(entries_names.contains("loutre.txt"));
+        assert!(entries_names.contains("canard.txt"));
+        assert!(entries_names.contains("baleine.txt"));
+        assert!(entries_inode.contains(&inode1));
+        assert!(entries_inode.contains(&inode2));
+        assert!(entries_inode.contains(&inode3));
+
+        remove_file("/tmp/canard").unwrap();
+    }
+    #[test]
+    fn lookup() {
+        let _ = remove_file("/tmp/canard");
+        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        let inode1 = container.create(1, OsStr::new("loutre.txt")).unwrap();
+        let inode2 = container.create(1, OsStr::new("canard.txt")).unwrap();
+
+        let finding = container.lookup(1, OsStr::new("loutre.txt")).unwrap();
+        assert!(finding.is_some());
+        let (ino, filetype) = finding.unwrap();
+        assert_eq!(ino, inode1);
+        assert_eq!(filetype, FileType::RegularFile);
+
+        let finding = container.lookup(1, OsStr::new("canard.txt")).unwrap();
+        assert!(finding.is_some());
+        let (ino, filetype) = finding.unwrap();
+        assert_eq!(ino, inode2);
+        assert_eq!(filetype, FileType::RegularFile);
+
         remove_file("/tmp/canard").unwrap();
     }
 }
