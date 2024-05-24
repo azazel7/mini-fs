@@ -6,10 +6,10 @@
     - [ ] Make unit test on primitives
 - [ ] Split sector.rs in multiple files.
 - [ ] Make primitive functions in Container
-    - [ ] primitive to read/write sectors
-        - [ ] Use Seek from File to place
-    - [ ] primitive to add new sectors at the end of the file
-    - [ ] primitive to find an empty sector
+    - [x] primitive to read/write sectors
+        - [x] Use Seek from File to place
+    - [x] primitive to add new sectors at the end of the file
+    - [x] primitive to find an empty sector
     - [ ] primitive to get next sector
     - [ ] primitive to locate the writing offset to write in a file
         - [ ] Go through the sector with their size
