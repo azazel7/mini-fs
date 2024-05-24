@@ -440,4 +440,19 @@ mod tests {
         assert_eq!(empty_sector, 1);
         remove_file("/tmp/canard").unwrap();
     }
+    #[test]
+    fn find_ino_sector() {
+        let _ = remove_file("/tmp/canard");
+        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        container.append_empty_sector().unwrap();
+        container.append_empty_sector().unwrap();
+        let new_inode = container.create(1, OsStr::new("loutre.txt")).unwrap();
+        let (sector_id, _sector) = container.find_ino_sector(1).unwrap();
+        assert_eq!(sector_id, 0); //Root directory
+        let ret = container.find_ino_sector(new_inode);
+        assert!(ret.is_ok());
+        let ret = container.find_ino_sector(37);
+        assert!(ret.is_err());
+        remove_file("/tmp/canard").unwrap();
+    }
 }
