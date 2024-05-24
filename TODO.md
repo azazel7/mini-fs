@@ -19,7 +19,7 @@
     - [ ] Log file given as parameter*
     - [ ] Try with notify-send crates?
 - [ ] File management
-    - [ ] Add file*
+    - [x] Add file*
     - [ ] Delete file
     - [ ] Read file
     - [ ] write file
@@ -27,5 +27,5 @@
     - [ ] Close file*
 - [ ] Make directory
     - [ ] Delete directory
-    - [ ] Readdir
+    - [x] Readdir
 - [ ] Move constant to Cargo.toml
