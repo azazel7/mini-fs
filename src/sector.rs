@@ -60,7 +60,7 @@ impl FileMetadata {
     pub fn first_sector(&self) -> Option<u64> {
         self.first_sector
     }
-    pub fn set_first_sector(&mut self, sector_id : u64) {
+    pub fn set_first_sector(&mut self, sector_id: u64) {
         self.first_sector = Some(sector_id);
     }
     pub fn increase_length_sector(&mut self) {
