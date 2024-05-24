@@ -1,7 +1,7 @@
 use anyhow::{bail, Ok, Result};
 use fuser::{FileType, ReplyDirectory};
 use serde::{Deserialize, Serialize};
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem::size_of;
@@ -234,7 +234,6 @@ impl Container {
         self.metadata.next_ino += 1;
         Ok(self.metadata.next_ino - 1)
     }
-
     pub fn opendir(&mut self, ino: u64) -> Result<u64> {
         let (sector_id, sector) = self.find_ino_sector(ino)?;
         Ok(1)
@@ -257,7 +256,6 @@ impl Container {
 
         entry_list.push((ino, FileType::Directory, ".".to_string()));
         entry_list.push((ino, FileType::Directory, "..".to_string()));
-        
 
         //Iterate through all sector of directory
         while let Some(sector_id) = next_sector {
@@ -357,6 +355,36 @@ impl Container {
             return Ok(Some(FileType::Directory));
         } else if let Sector::FileMetadata(_) = sector {
             return Ok(Some(FileType::RegularFile));
+        }
+        Ok(None)
+    }
+    pub fn lookup(&mut self, parent: u64, name: &OsStr) -> Result<Option<(u64, FileType)>> {
+        let (_metadata_sector_id, mut metadata_sector) = self.find_ino_sector(parent)?;
+        let Sector::DirMetadata(dir_metadata) = &mut metadata_sector else {
+            bail!("Inode {parent} is not a directory.");
+        };
+        let mut next_sector = dir_metadata.first_sector();
+
+        //Iterate through all sector of directory
+        while let Some(sector_id) = next_sector {
+            let base_sector = self.read_sector(sector_id)?;
+            let Sector::DirData(sector) = &base_sector else {
+                bail!("Directory sector is not DirData (inode {parent}, sector {sector_id})");
+            };
+            //Look for used entry
+            for entry in sector.entries() {
+                if !entry.empty {
+                    let ename = OsString::from(entry.name.to_string());
+                    if ename == *name {
+                        let filetype = match entry.filetype {
+                            sector::FileType::Directory => FileType::Directory,
+                            sector::FileType::Regular => FileType::RegularFile,
+                        };
+                        return Ok(Some((entry.ino, filetype)));
+                    }
+                }
+            }
+            next_sector = sector.next_sector();
         }
         Ok(None)
     }
