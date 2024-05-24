@@ -1,7 +1,8 @@
 use crate::container::Container;
 use anyhow::Result;
 use fuser::{
-    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, Request, ReplyEmpty
+    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
+    Request,
 };
 use libc::{ENOENT, ENOSYS};
 use std::ffi::OsStr;
@@ -61,14 +62,34 @@ impl FuseFs {
 
 impl Filesystem for FuseFs {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        eprintln!("lookup name {:?}", name);
-        if parent == 1 && (name.to_str() == Some("hello.txt") || name.to_str() == Some("canard")) {
-            reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
+        eprintln!("lookup {parent} {:?}", name);
+        let Ok(ret) = self.container.lookup(parent, name) else {
+            reply.error(ENOENT);
+            return;
+        };
+        if let Some((ino, filetype)) = ret {
+            let attr: FileAttr = FileAttr {
+                ino,
+                size: 0,
+                blocks: 1,
+                atime: UNIX_EPOCH, // 1970-01-01 00:00:00
+                mtime: UNIX_EPOCH,
+                ctime: UNIX_EPOCH,
+                crtime: UNIX_EPOCH,
+                kind: filetype,
+                perm: 0o777,
+                nlink: 1,
+                uid: 501,
+                gid: 20,
+                rdev: 0,
+                flags: 0,
+                blksize: 512,
+            };
+            reply.entry(&TTL, &attr, 0);
         } else {
             reply.error(ENOENT);
         }
     }
-
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
         eprintln!("getattr {ino}");
         let Ok(ret) = self.container.getattr(ino) else {
