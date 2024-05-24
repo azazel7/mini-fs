@@ -1,7 +1,7 @@
 use crate::container::Container;
 use anyhow::Result;
 use fuser::{
-    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, Request,
+    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, Request, ReplyEmpty
 };
 use libc::{ENOENT, ENOSYS};
 use std::ffi::OsStr;
@@ -70,10 +70,32 @@ impl Filesystem for FuseFs {
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
-        match ino {
-            1 => reply.attr(&TTL, &HELLO_DIR_ATTR),
-            2 => reply.attr(&TTL, &HELLO_TXT_ATTR),
-            _ => reply.error(ENOENT),
+        eprintln!("getattr {ino}");
+        let Ok(ret) = self.container.getattr(ino) else {
+            reply.error(ENOENT);
+            return;
+        };
+        if let Some(filetype) = ret {
+            let attr: FileAttr = FileAttr {
+                ino,
+                size: 0,
+                blocks: 1,
+                atime: UNIX_EPOCH, // 1970-01-01 00:00:00
+                mtime: UNIX_EPOCH,
+                ctime: UNIX_EPOCH,
+                crtime: UNIX_EPOCH,
+                kind: filetype,
+                perm: 0o777,
+                nlink: 1,
+                uid: 501,
+                gid: 20,
+                rdev: 0,
+                flags: 0,
+                blksize: 512,
+            };
+            reply.attr(&TTL, &attr);
+        } else {
+            reply.error(ENOENT);
         }
     }
 

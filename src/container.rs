@@ -351,6 +351,15 @@ impl Container {
 
         Ok(new_inode)
     }
+    pub fn getattr(&mut self, ino: u64) -> Result<Option<FileType>> {
+        let (_sector_id, sector) = self.find_ino_sector(ino)?;
+        if let Sector::DirMetadata(_) = sector {
+            return Ok(Some(FileType::Directory));
+        } else if let Sector::FileMetadata(_) = sector {
+            return Ok(Some(FileType::RegularFile));
+        }
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
