@@ -1,4 +1,5 @@
 use crate::container::Container;
+use crate::logger::{EventType, Logger};
 use crate::sector;
 use anyhow::Result;
 use fuser::{
@@ -13,12 +14,14 @@ const TTL: Duration = Duration::from_secs(1); // 1 second
 
 pub struct FuseFs {
     container: Container,
+    logger: Logger,
 }
 
 impl FuseFs {
-    pub fn new(container_name: String) -> Result<Self> {
+    pub fn new(container_name: String, logger: Logger) -> Result<Self> {
         Ok(Self {
             container: Container::new(container_name)?,
+            logger,
         })
     }
 }
@@ -143,7 +146,7 @@ impl Filesystem for FuseFs {
         flags: i32,
         reply: fuser::ReplyCreate,
     ) {
-        eprintln!("Call to create");
+        self.logger.log(EventType::Open, &format!("{name:?}"));
         let ret = self
             .container
             .create(parent, name, sector::FileType::Regular);
@@ -171,6 +174,21 @@ impl Filesystem for FuseFs {
             eprintln!("{:?}", ret);
             reply.error(ENOSYS);
         }
+    }
+    fn open(&mut self, _req: &Request<'_>, _ino: u64, _flags: i32, reply: fuser::ReplyOpen) {
+        self.logger.log(EventType::Open, &format!("{_ino:?}"));
+    }
+    fn release(
+        &mut self,
+        _req: &Request<'_>,
+        _ino: u64,
+        _fh: u64,
+        _flags: i32,
+        _lock_owner: Option<u64>,
+        _flush: bool,
+        reply: ReplyEmpty,
+    ) {
+        self.logger.log(EventType::Close, &format!("{_ino:?}"));
     }
     fn mkdir(
         &mut self,
