@@ -257,6 +257,24 @@ impl Container {
         self.write_metadata()?;
         Ok(())
     }
+    fn delete_file(&mut self, ino: u64) -> Result<()> {
+        let (metadata_sector_id, metadata_sector) = self.find_ino_sector(ino)?;
+        let Sector::FileMetadata(file_metadata) = &metadata_sector else {
+            bail!("Inode {ino} is not a file.");
+        };
+        let mut current_sector_id = file_metadata.first_sector();
+        self.free_sector(metadata_sector_id)?;
+
+        while let Some(sector_id) = current_sector_id {
+            let Sector::FileData(file_data) = self.read_sector(sector_id)? else {
+                bail!("Sector is not of type FileData.");
+            };
+            self.free_sector(sector_id)?;
+            current_sector_id = file_data.next();
+        }
+
+        Ok(())
+    }
     pub fn opendir(&mut self, ino: u64) -> Result<u64> {
         let (sector_id, sector) = self.find_ino_sector(ino)?;
         Ok(1)
@@ -414,6 +432,51 @@ impl Container {
             next_sector = sector.next_sector();
         }
         Ok(None)
+    }
+    pub fn unlink(&mut self, parent: u64, name: &OsStr) -> Result<()> {
+        let (_metadata_sector_id, mut metadata_sector) = self.find_ino_sector(parent)?;
+        let Sector::DirMetadata(dir_metadata) = &mut metadata_sector else {
+            bail!("Inode {parent} is not a directory.");
+        };
+        let mut next_sector = dir_metadata.first_sector();
+
+        let mut ino = None;
+        //Iterate through all sector of directory
+        while let Some(sector_id) = next_sector {
+            let mut base_sector = self.read_sector(sector_id)?;
+            let Sector::DirData(sector) = &mut base_sector else {
+                bail!("Directory sector is not DirData (inode {parent}, sector {sector_id})");
+            };
+            //Look for entry with the right name
+            for entry in sector.entries_mut() {
+                if !entry.empty {
+                    let ename = OsString::from(entry.name.to_string());
+                    if ename == *name {
+                        if entry.filetype == sector::FileType::Directory {
+                            bail!("{name:?} is a directory.");
+                        }
+                        //Free entry and set ino
+                        ino = Some(entry.ino);
+                        entry.empty = true;
+                        entry.ino = 0;
+                        entry.name = heapless::String::new();
+                        break;
+                    }
+                }
+            }
+            next_sector = sector.next_sector();
+            if ino.is_some() {
+                //The file has been found so we write it back
+                self.write_sector(sector_id, &base_sector)?;
+                break;
+            }
+        }
+        //If the name has not been found, return Ok. No problem encountered
+        let Some(ino) = ino else {
+            return Ok(());
+        };
+        self.delete_file(ino)?;
+        Ok(())
     }
 }
 
