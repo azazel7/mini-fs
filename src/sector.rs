@@ -71,8 +71,8 @@ impl FileMetadata {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FileData {
     length_data: u64,
-    next_sector: u64,
-    previous_sector: u64,
+    next_sector: Option<u64>,
+    previous_sector: Option<u64>,
     #[serde_as(as = "Bytes")]
     data: [u8; DATA_CHUNK_SIZE],
 }
@@ -80,14 +80,17 @@ impl FileData {
     pub fn new() -> Self {
         FileData {
             length_data: 0,
-            next_sector: 0,
-            previous_sector: 0,
+            next_sector: None,
+            previous_sector: None,
             data: [0; DATA_CHUNK_SIZE],
         }
     }
+    pub fn next(&self) -> Option<u64> {
+        self.next_sector
+    }
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
 pub enum FileType {
     Regular,
     Directory,
