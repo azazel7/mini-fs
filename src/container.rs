@@ -282,7 +282,7 @@ impl Container {
 
         Ok(entry_list)
     }
-    pub fn create(&mut self, parent: u64, name: &OsStr) -> Result<u64> {
+    pub fn create(&mut self, parent: u64, name: &OsStr, filetype: sector::FileType) -> Result<u64> {
         let Some(name) = name.to_str() else {
             bail!("Invalid name");
         };
@@ -335,7 +335,7 @@ impl Container {
             bail!("Error heapless::String::from_str for the filename.");
         };
         entry.name = heapless_name;
-        entry.filetype = sector::FileType::Regular;
+        entry.filetype = filetype;
 
         eprintln!("base_sector {sector:?} - {}", sector.entries().len());
         //Write to container
@@ -344,7 +344,11 @@ impl Container {
         // write metadata of new file
         let empty_sector_id = empty_sector_id_file_metadata;
         let sector = FileMetadata::new(new_inode, Some(parent));
-        self.write_sector(empty_sector_id, &Sector::FileMetadata(sector))?;
+        let sector = match filetype {
+            sector::FileType::Regular => Sector::FileMetadata(sector),
+            sector::FileType::Directory => Sector::DirMetadata(sector),
+        };
+        self.write_sector(empty_sector_id, &sector)?;
         eprintln!("File metadata sector {empty_sector_id}");
 
         Ok(new_inode)
@@ -444,7 +448,9 @@ mod tests {
     fn find_ino_sector() {
         let _ = remove_file("/tmp/canard");
         let mut container = Container::new("/tmp/canard".to_string()).unwrap();
-        let new_inode = container.create(1, OsStr::new("loutre.txt")).unwrap();
+        let new_inode = container
+            .create(1, OsStr::new("loutre.txt"), sector::FileType::Regular)
+            .unwrap();
         let (sector_id, _sector) = container.find_ino_sector(1).unwrap();
         assert_eq!(sector_id, 0); //Root directory
         let ret = container.find_ino_sector(new_inode);
@@ -459,7 +465,9 @@ mod tests {
         let mut container = Container::new("/tmp/canard".to_string()).unwrap();
         container.append_empty_sector().unwrap();
         container.append_empty_sector().unwrap();
-        let new_inode = container.create(1, OsStr::new("loutre.txt")).unwrap();
+        let new_inode = container
+            .create(1, OsStr::new("loutre.txt"), sector::FileType::Regular)
+            .unwrap();
 
         let filetype = container.getattr(new_inode).unwrap();
         assert_eq!(filetype, Some(FileType::RegularFile));
@@ -473,8 +481,12 @@ mod tests {
     fn readdir() {
         let _ = remove_file("/tmp/canard");
         let mut container = Container::new("/tmp/canard".to_string()).unwrap();
-        let inode1 = container.create(1, OsStr::new("loutre.txt")).unwrap();
-        let inode2 = container.create(1, OsStr::new("canard.txt")).unwrap();
+        let inode1 = container
+            .create(1, OsStr::new("loutre.txt"), sector::FileType::Regular)
+            .unwrap();
+        let inode2 = container
+            .create(1, OsStr::new("canard.txt"), sector::FileType::Regular)
+            .unwrap();
 
         let entries = container.readdir(1, 1, 0).unwrap();
         let entries_names = entries.iter().map(|e| e.2.clone()).collect::<HashSet<_>>();
@@ -487,7 +499,9 @@ mod tests {
         assert!(entries_inode.contains(&inode1));
         assert!(entries_inode.contains(&inode2));
 
-        let inode3 = container.create(1, OsStr::new("baleine.txt")).unwrap();
+        let inode3 = container
+            .create(1, OsStr::new("baleine.txt"), sector::FileType::Regular)
+            .unwrap();
         let entries = container.readdir(1, 1, 0).unwrap();
         let entries_names = entries.iter().map(|e| e.2.clone()).collect::<HashSet<_>>();
         let entries_inode = entries.iter().map(|e| e.0.clone()).collect::<HashSet<_>>();
@@ -507,8 +521,12 @@ mod tests {
     fn lookup() {
         let _ = remove_file("/tmp/canard");
         let mut container = Container::new("/tmp/canard".to_string()).unwrap();
-        let inode1 = container.create(1, OsStr::new("loutre.txt")).unwrap();
-        let inode2 = container.create(1, OsStr::new("canard.txt")).unwrap();
+        let inode1 = container
+            .create(1, OsStr::new("loutre.txt"), sector::FileType::Regular)
+            .unwrap();
+        let inode2 = container
+            .create(1, OsStr::new("canard.txt"), sector::FileType::Regular)
+            .unwrap();
 
         let finding = container.lookup(1, OsStr::new("loutre.txt")).unwrap();
         assert!(finding.is_some());

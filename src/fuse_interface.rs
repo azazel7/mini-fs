@@ -1,4 +1,5 @@
 use crate::container::Container;
+use crate::sector;
 use anyhow::Result;
 use fuser::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
@@ -93,12 +94,9 @@ impl Filesystem for FuseFs {
         _lock: Option<u64>,
         reply: ReplyData,
     ) {
-        if ino == 2 {
-            reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
-        } else {
-            eprintln!("read ino {}", ino);
-            reply.error(ENOENT);
-        }
+        eprintln!("read ino {}", ino);
+        //     reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
+        reply.error(ENOENT);
     }
 
     fn opendir(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: fuser::ReplyOpen) {
@@ -146,7 +144,9 @@ impl Filesystem for FuseFs {
         reply: fuser::ReplyCreate,
     ) {
         eprintln!("Call to create");
-        let ret = self.container.create(parent, name);
+        let ret = self
+            .container
+            .create(parent, name, sector::FileType::Regular);
         if let Ok(ino) = ret {
             let attr: FileAttr = FileAttr {
                 ino,
@@ -167,6 +167,43 @@ impl Filesystem for FuseFs {
             };
 
             reply.created(&TTL, &attr, 1, 1, flags as u32);
+        } else {
+            eprintln!("{:?}", ret);
+            reply.error(ENOSYS);
+        }
+    }
+    fn mkdir(
+        &mut self,
+        _req: &Request<'_>,
+        parent: u64,
+        name: &OsStr,
+        _mode: u32,
+        _umask: u32,
+        reply: ReplyEntry,
+    ) {
+        let ret = self
+            .container
+            .create(parent, name, sector::FileType::Directory);
+        if let Ok(ino) = ret {
+            let attr: FileAttr = FileAttr {
+                ino,
+                size: 0,
+                blocks: 1,
+                atime: UNIX_EPOCH, // 1970-01-01 00:00:00
+                mtime: UNIX_EPOCH,
+                ctime: UNIX_EPOCH,
+                crtime: UNIX_EPOCH,
+                kind: FileType::Directory,
+                perm: 0o777,
+                nlink: 1,
+                uid: 501,
+                gid: 20,
+                rdev: 0,
+                flags: 0,
+                blksize: 512,
+            };
+
+            reply.entry(&TTL, &attr, 1);
         } else {
             eprintln!("{:?}", ret);
             reply.error(ENOSYS);
