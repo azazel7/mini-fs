@@ -190,6 +190,9 @@ impl Filesystem for FuseFs {
     ) {
         self.logger.log(EventType::Close, &format!("{_ino:?}"));
     }
+    fn flush(&mut self, _req: &Request<'_>, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
+        self.logger.log(EventType::Close, &format!("{ino:?}"));
+    }
     fn mkdir(
         &mut self,
         _req: &Request<'_>,
