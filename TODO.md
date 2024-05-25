@@ -15,16 +15,19 @@
         - [ ] Go through the sector with their size
         - [ ] Locate the place. 
         - [ ] A write may concern multiple sectors
+    - [ ] Find the filename based on ino
 - [ ] Implement notifications*
-    - [ ] Log file given as parameter*
-    - [ ] Try with notify-send crates?
+    - [x] Log file given as parameter*
+    - [x] Try with notify-send crates?
+    - [ ] Log Opendir, Closedir, Open, Create, flush, release, releasedir
 - [ ] File management
     - [x] Add file*
-    - [ ] Delete file
+    - [x] Delete file
     - [ ] Read file
     - [ ] write file
-    - [ ] Open file*
-    - [ ] Close file*
+    - [x] Open file*
+    - [x] Close file*
+    - [ ] Get attr should return the size of the file
 - [ ] Make directory
     - [ ] Delete directory
     - [x] Readdir
