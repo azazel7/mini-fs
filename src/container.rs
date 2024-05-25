@@ -234,6 +234,29 @@ impl Container {
         self.metadata.next_ino += 1;
         Ok(self.metadata.next_ino - 1)
     }
+    fn free_sector(&mut self, sector_id: u64) -> Result<()> {
+        let mut empty_sector = EmptySector::default();
+        if let Sector::Empty(_) = self.read_sector(sector_id)? {
+            //Sector is already empty
+            return Ok(());
+        }
+        if let Some(first_empty_sector_id) = self.metadata.first_empty_sector {
+            let mut base_first_empty_sector = self.read_sector(first_empty_sector_id)?;
+            let Sector::Empty(first_empty_sector) = &mut base_first_empty_sector else {
+                bail!("First empty sector ({first_empty_sector_id}) is not an empty sector.");
+            };
+            first_empty_sector.set_previous(sector_id);
+            self.write_sector(first_empty_sector_id, &base_first_empty_sector)?;
+            empty_sector.set_next(first_empty_sector_id);
+        }
+        self.write_sector(sector_id, &Sector::Empty(empty_sector))?;
+        self.metadata.first_empty_sector = Some(sector_id);
+        if self.metadata.last_empty_sector.is_none() {
+            self.metadata.last_empty_sector = Some(sector_id);
+        }
+        self.write_metadata()?;
+        Ok(())
+    }
     pub fn opendir(&mut self, ino: u64) -> Result<u64> {
         let (sector_id, sector) = self.find_ino_sector(ino)?;
         Ok(1)
@@ -396,6 +419,8 @@ impl Container {
 
 #[cfg(test)]
 mod tests {
+    use crate::sector::FileData;
+
     use super::*;
     use std::{collections::HashSet, fs::remove_file};
 
@@ -432,6 +457,114 @@ mod tests {
             assert_eq!(sector.previous(), Some(2));
             assert_eq!(sector.next(), None);
         }
+        remove_file("/tmp/canard").unwrap();
+    }
+    #[test]
+    fn free_sector() {
+        let _ = remove_file("/tmp/canard");
+        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        container.append_empty_sector().unwrap();
+        container.append_empty_sector().unwrap();
+        container.append_empty_sector().unwrap();
+        container.append_empty_sector().unwrap();
+        container
+            .write_sector(1, &Sector::FileData(FileData::new()))
+            .unwrap();
+        container
+            .write_sector(2, &Sector::DirMetadata(FileMetadata::new(2, None)))
+            .unwrap();
+        container
+            .write_sector(3, &Sector::FileData(FileData::new()))
+            .unwrap();
+        container
+            .write_sector(4, &Sector::DirMetadata(FileMetadata::new(3, None)))
+            .unwrap();
+        //NOTE since we forced a writing, the metadata are not up to date
+        //write_sector are not doing any checking of what is written
+        container.metadata.first_empty_sector = None;
+        container.metadata.last_empty_sector = None;
+
+        assert!(matches!(
+            container.read_sector(1).unwrap(),
+            Sector::FileData(_)
+        ));
+        assert!(matches!(
+            container.read_sector(2).unwrap(),
+            Sector::DirMetadata(_)
+        ));
+        assert!(matches!(
+            container.read_sector(3).unwrap(),
+            Sector::FileData(_)
+        ));
+        assert!(matches!(
+            container.read_sector(4).unwrap(),
+            Sector::DirMetadata(_)
+        ));
+
+        container.free_sector(2).unwrap();
+
+        assert!(matches!(
+            container.read_sector(1).unwrap(),
+            Sector::FileData(_)
+        ));
+        assert!(matches!(
+            container.read_sector(2).unwrap(),
+            Sector::Empty(_)
+        ));
+        assert!(matches!(
+            container.read_sector(3).unwrap(),
+            Sector::FileData(_)
+        ));
+        assert!(matches!(
+            container.read_sector(4).unwrap(),
+            Sector::DirMetadata(_)
+        ));
+        assert_eq!(container.metadata.first_empty_sector, Some(2));
+        assert_eq!(container.metadata.last_empty_sector, Some(2));
+
+        container.free_sector(3).unwrap();
+
+        assert!(matches!(
+            container.read_sector(1).unwrap(),
+            Sector::FileData(_)
+        ));
+        assert!(matches!(
+            container.read_sector(2).unwrap(),
+            Sector::Empty(_)
+        ));
+        assert!(matches!(
+            container.read_sector(3).unwrap(),
+            Sector::Empty(_)
+        ));
+        assert!(matches!(
+            container.read_sector(4).unwrap(),
+            Sector::DirMetadata(_)
+        ));
+        assert_eq!(container.metadata.first_empty_sector, Some(3));
+        assert_eq!(container.metadata.last_empty_sector, Some(2));
+
+        //Try to double free but everything should remain the same
+        container.free_sector(3).unwrap();
+
+        assert!(matches!(
+            container.read_sector(1).unwrap(),
+            Sector::FileData(_)
+        ));
+        assert!(matches!(
+            container.read_sector(2).unwrap(),
+            Sector::Empty(_)
+        ));
+        assert!(matches!(
+            container.read_sector(3).unwrap(),
+            Sector::Empty(_)
+        ));
+        assert!(matches!(
+            container.read_sector(4).unwrap(),
+            Sector::DirMetadata(_)
+        ));
+        assert_eq!(container.metadata.first_empty_sector, Some(3));
+        assert_eq!(container.metadata.last_empty_sector, Some(2));
+
         remove_file("/tmp/canard").unwrap();
     }
     #[test]
