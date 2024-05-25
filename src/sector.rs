@@ -88,6 +88,12 @@ impl FileData {
     pub fn next(&self) -> Option<u64> {
         self.next_sector
     }
+    pub fn set_next(&mut self, next: u64) {
+        self.next_sector = Some(next);
+    }
+    pub fn set_previous(&mut self, prev: u64) {
+        self.previous_sector = Some(prev);
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]

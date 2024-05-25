@@ -631,6 +631,78 @@ mod tests {
         remove_file("/tmp/canard").unwrap();
     }
     #[test]
+    fn delete_file() {
+        let _ = remove_file("/tmp/canard");
+        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        container.append_empty_sector().unwrap();
+        container.append_empty_sector().unwrap();
+        container.append_empty_sector().unwrap();
+        container.append_empty_sector().unwrap();
+        let mut file_data = FileData::new();
+        file_data.set_next(4);
+        container
+            .write_sector(1, &Sector::FileData(file_data))
+            .unwrap();
+        let mut file_metadata = FileMetadata::new(7, None);
+        file_metadata.set_first_sector(1);
+        container
+            .write_sector(2, &Sector::FileMetadata(file_metadata))
+            .unwrap();
+        let mut file_data = FileData::new();
+        file_data.set_previous(4);
+        container
+            .write_sector(3, &Sector::FileData(file_data))
+            .unwrap();
+        let mut file_data = FileData::new();
+        file_data.set_next(3);
+        file_data.set_previous(1);
+        container
+            .write_sector(4, &Sector::FileData(file_data))
+            .unwrap();
+        //NOTE since we forced a writing, the metadata are not up to date
+        //write_sector are not doing any checking of what is written
+        container.metadata.first_empty_sector = None;
+        container.metadata.last_empty_sector = None;
+
+        assert!(matches!(
+            container.read_sector(1).unwrap(),
+            Sector::FileData(_)
+        ));
+        assert!(matches!(
+            container.read_sector(2).unwrap(),
+            Sector::FileMetadata(_)
+        ));
+        assert!(matches!(
+            container.read_sector(3).unwrap(),
+            Sector::FileData(_)
+        ));
+        assert!(matches!(
+            container.read_sector(4).unwrap(),
+            Sector::FileData(_)
+        ));
+
+        container.delete_file(7).unwrap();
+
+        assert!(matches!(
+            container.read_sector(1).unwrap(),
+            Sector::Empty(_)
+        ));
+        assert!(matches!(
+            container.read_sector(2).unwrap(),
+            Sector::Empty(_)
+        ));
+        assert!(matches!(
+            container.read_sector(3).unwrap(),
+            Sector::Empty(_)
+        ));
+        assert!(matches!(
+            container.read_sector(4).unwrap(),
+            Sector::Empty(_)
+        ));
+
+        remove_file("/tmp/canard").unwrap();
+    }
+    #[test]
     fn get_empty_sector() {
         let _ = remove_file("/tmp/canard");
         let mut container = Container::new("/tmp/canard".to_string()).unwrap();
