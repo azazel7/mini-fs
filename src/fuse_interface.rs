@@ -209,4 +209,12 @@ impl Filesystem for FuseFs {
             reply.error(ENOSYS);
         }
     }
+    fn unlink(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        let ret = self.container.unlink(parent, name);
+        if ret.is_ok() {
+            reply.ok();
+        } else {
+            reply.error(ENOSYS);
+        }
+    }
 }
