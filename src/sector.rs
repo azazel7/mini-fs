@@ -66,11 +66,17 @@ impl FileMetadata {
     pub fn increase_length_sector(&mut self) {
         self.length_sector += 1;
     }
+    pub fn length_byte(&self) -> u64 {
+        self.length_byte
+    }
+    pub fn increase_length_byte(&mut self, qty: u64) {
+        self.length_byte += qty;
+    }
 }
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FileData {
-    length_data: u64,
+    data_length: u64,
     next_sector: Option<u64>,
     previous_sector: Option<u64>,
     #[serde_as(as = "Bytes")]
@@ -79,7 +85,7 @@ pub struct FileData {
 impl FileData {
     pub fn new() -> Self {
         FileData {
-            length_data: 0,
+            data_length: 0,
             next_sector: None,
             previous_sector: None,
             data: [0; DATA_CHUNK_SIZE],
@@ -93,6 +99,19 @@ impl FileData {
     }
     pub fn set_previous(&mut self, prev: u64) {
         self.previous_sector = Some(prev);
+    }
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+    pub fn data_length(&self) -> u64 {
+        self.data_length
+    }
+    pub fn set_data_length(&mut self, data_length: u64) {
+        self.data_length = data_length.min(DATA_CHUNK_SIZE as u64);
+    }
+    pub fn write(&mut self, data: &[u8], start: usize, end: usize) {
+        let slice = &mut self.data[start..end];
+        slice.clone_from_slice(data);
     }
 }
 

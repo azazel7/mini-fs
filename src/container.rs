@@ -7,9 +7,10 @@ use std::io::{Read, Seek, SeekFrom};
 use std::mem::size_of;
 use std::path::Path;
 use std::str::FromStr;
+use std::usize;
 use std::{fs::File, io::Write};
 
-use crate::sector::{self, DirData, EmptySector, FileMetadata, Sector};
+use crate::sector::{self, DirData, EmptySector, FileData, FileMetadata, Sector, DATA_CHUNK_SIZE};
 
 use sector::FILE_NAME_SIZE;
 
@@ -478,6 +479,124 @@ impl Container {
         self.delete_file(ino)?;
         Ok(())
     }
+    pub fn write(&mut self, ino: u64, offset: i64, data: &[u8]) -> Result<u64> {
+        //TODO What is offset? The offset base on the beginning of a file or the hyphothetical
+        //cursor?
+        if offset < 0 {
+            bail!("Writing at a negative offset (offset={offset})");
+        }
+        let offset = offset as u64;
+        let (metadata_sector_id, mut metadata_sector) = self.find_ino_sector(ino)?;
+        let Sector::FileMetadata(file_metadata) = &mut metadata_sector else {
+            bail!("Inode {ino} is not a directory.");
+        };
+        let offset = if offset > file_metadata.length_byte() {
+            file_metadata.length_byte()
+        } else {
+            offset
+        };
+
+        let mut current_sector_id = file_metadata.first_sector();
+        let mut file_index = 0;
+        let mut data_index = 0;
+        let mut sector_index = 0;
+
+        let mut previous_sector_id = None;
+
+        let mut starting_sector = None;
+        //find offset
+        while let Some(sector_id) = current_sector_id {
+            let mut sector = self.read_sector(sector_id)?;
+            let Sector::FileData(sector_data) = &mut sector else {
+                bail!("Sector {sector_id} (ino {ino} is not a FileData {sector:?}");
+            };
+            if offset >= file_index + DATA_CHUNK_SIZE as u64 {
+                current_sector_id = sector_data.next();
+                file_index += DATA_CHUNK_SIZE as u64;
+                continue;
+            }
+
+            //Check if offset starts at this sector
+            if offset >= file_index && offset < file_index + DATA_CHUNK_SIZE as u64 {
+                starting_sector = Some(sector_id);
+                sector_index = (offset - file_index) as usize;
+                previous_sector_id = Some(sector_id);
+                break;
+            }
+        }
+
+        let mut current_sector_id = if let Some(a) = starting_sector {
+            a
+        } else {
+            //Get an empty sector if needed
+            let empty_sector_id = self.get_empty_sector()?;
+            file_metadata.increase_length_sector();
+            let mut next_sector = FileData::new();
+            //Setup the sector
+            if let Some(previous_sector_id) = previous_sector_id {
+                next_sector.set_previous(previous_sector_id);
+            } else {
+                file_metadata.set_first_sector(empty_sector_id);
+            }
+            //Write it
+            self.write_sector(empty_sector_id, &Sector::FileData(next_sector))?;
+            empty_sector_id
+        };
+        let mut total_data_diff = 0;
+
+        //Loop through the sectors to write the data
+        loop {
+            let mut sector = self.read_sector(current_sector_id)?;
+            let Sector::FileData(sector_data) = &mut sector else {
+                bail!("Sector {current_sector_id} (ino {ino} is not a FileData {sector:?}");
+            };
+            //Remaining qty to write from data
+            let data_qty = (data.len() - data_index) as usize;
+            //Maximum qty writable in that sector
+            let write_qty = data_qty.min(DATA_CHUNK_SIZE - sector_index as usize) as usize;
+
+            //Write the data into the FileData struct
+            let slice = &data[data_index..data_index + write_qty as usize];
+            sector_data.write(slice, sector_index, sector_index + write_qty);
+            let prev_data_length = sector_data.data_length() as usize;
+
+            let length_diff = if sector_index + write_qty < prev_data_length {
+                0
+            } else {
+                sector_index + write_qty - prev_data_length as usize
+            };
+            total_data_diff += length_diff;
+            sector_data.set_data_length((prev_data_length + length_diff) as u64);
+
+            //Update index
+            data_index += write_qty;
+            if data_index == data.len() {
+                //We are done writing
+                self.write_sector(current_sector_id, &sector)?;
+                break;
+            }
+            sector_index = 0;
+            file_index += DATA_CHUNK_SIZE as u64;
+
+            //Append a new sector if needed
+            if sector_data.next().is_none() {
+                let empty_sector_id = self.get_empty_sector()?;
+                file_metadata.increase_length_sector();
+                sector_data.set_next(empty_sector_id);
+                let mut next_sector = FileData::new();
+                next_sector.set_previous(current_sector_id);
+                self.write_sector(empty_sector_id, &Sector::FileData(next_sector))?;
+            }
+            let next_sector_id = sector_data.next().unwrap();
+            self.write_sector(current_sector_id, &sector)?;
+            current_sector_id = next_sector_id;
+        }
+
+        file_metadata.increase_length_byte(total_data_diff as u64);
+        self.write_sector(metadata_sector_id, &metadata_sector)?;
+
+        Ok(data.len().try_into()?)
+    }
 }
 
 #[cfg(test)]
@@ -807,6 +926,160 @@ mod tests {
         let (ino, filetype) = finding.unwrap();
         assert_eq!(ino, inode2);
         assert_eq!(filetype, FileType::RegularFile);
+
+        remove_file("/tmp/canard").unwrap();
+    }
+    #[test]
+    fn write() {
+        let _ = remove_file("/tmp/canard");
+        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+
+        let file_inode = container
+            .create(1, OsStr::new("canard.txt"), sector::FileType::Regular)
+            .unwrap();
+
+        //Phase 1, First simple write
+        let data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let written = container.write(file_inode, 0, &data).unwrap();
+        assert_eq!(written, 10);
+        let (_metadata_sector_id, Sector::FileMetadata(file_metadata)) =
+            container.find_ino_sector(file_inode).unwrap()
+        else {
+            panic!("Sector is not FileMetadata.");
+        };
+        assert_eq!(file_metadata.length_byte(), 10);
+        assert!(file_metadata.first_sector().is_some());
+        let sector_id = file_metadata.first_sector().unwrap();
+        let Sector::FileData(sector_data) = container.read_sector(sector_id).unwrap() else {
+            panic!("Sector is not FileData.");
+        };
+        assert_eq!(data, &sector_data.data()[0..10]);
+
+        //Phase 2, new write
+        let data = [17; DATA_CHUNK_SIZE];
+        let written = container.write(file_inode, 10, &data).unwrap();
+        assert_eq!(written, DATA_CHUNK_SIZE as u64);
+        let (_metadata_sector_id, Sector::FileMetadata(file_metadata)) =
+            container.find_ino_sector(file_inode).unwrap()
+        else {
+            panic!("Sector is not FileMetadata.");
+        };
+        assert_eq!(file_metadata.length_byte(), DATA_CHUNK_SIZE as u64 + 10);
+        assert!(file_metadata.first_sector().is_some());
+        let sector_id = file_metadata.first_sector().unwrap();
+        let Sector::FileData(sector_data) = container.read_sector(sector_id).unwrap() else {
+            panic!("Sector is not FileData.");
+        };
+        let mut sector_1_data = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        sector_1_data.resize(DATA_CHUNK_SIZE, 17);
+        assert_eq!(
+            &sector_1_data[0..DATA_CHUNK_SIZE],
+            &sector_data.data()[0..DATA_CHUNK_SIZE]
+        );
+
+        assert!(sector_data.next().is_some());
+        let sector_id = sector_data.next().unwrap();
+        let Sector::FileData(sector_data) = container.read_sector(sector_id).unwrap() else {
+            panic!("Sector is not FileData.");
+        };
+        let sector_2_data = vec![17; 10];
+        assert_eq!(sector_data.data_length(), 10);
+        assert_eq!(&sector_2_data[0..10], &sector_data.data()[0..10]);
+
+        //Phase 3, write in the middle
+        let data = vec![42; 10];
+        let written = container
+            .write(file_inode, DATA_CHUNK_SIZE as i64 - 5, &data)
+            .unwrap();
+        assert_eq!(written, 10);
+        let (_metadata_sector_id, Sector::FileMetadata(file_metadata)) =
+            container.find_ino_sector(file_inode).unwrap()
+        else {
+            panic!("Sector is not FileMetadata.");
+        };
+        assert_eq!(file_metadata.length_byte(), DATA_CHUNK_SIZE as u64 + 10);
+        assert!(file_metadata.first_sector().is_some());
+        let sector_id = file_metadata.first_sector().unwrap();
+        let Sector::FileData(sector_data) = container.read_sector(sector_id).unwrap() else {
+            panic!("Sector is not FileData.");
+        };
+        let mut sector_1_data = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        sector_1_data.resize(DATA_CHUNK_SIZE - 5, 17);
+        sector_1_data.resize(DATA_CHUNK_SIZE, 42);
+        assert_eq!(
+            &sector_1_data[0..DATA_CHUNK_SIZE],
+            &sector_data.data()[0..DATA_CHUNK_SIZE]
+        );
+
+        assert!(sector_data.next().is_some());
+        let sector_id = sector_data.next().unwrap();
+        let Sector::FileData(sector_data) = container.read_sector(sector_id).unwrap() else {
+            panic!("Sector is not FileData.");
+        };
+        let sector_2_data = vec![42, 42, 42, 42, 42, 17, 17, 17, 17, 17];
+        assert_eq!(sector_data.data_length(), 10);
+        assert_eq!(&sector_2_data[0..10], &sector_data.data()[0..10]);
+
+        //Phase 4, big write
+        let data = vec![91; DATA_CHUNK_SIZE * 3];
+        let written = container
+            .write(file_inode, DATA_CHUNK_SIZE as i64 - 5, &data)
+            .unwrap();
+        assert_eq!(written, DATA_CHUNK_SIZE as u64 * 3);
+        let (_metadata_sector_id, Sector::FileMetadata(file_metadata)) =
+            container.find_ino_sector(file_inode).unwrap()
+        else {
+            panic!("Sector is not FileMetadata.");
+        };
+        assert_eq!(
+            file_metadata.length_byte(),
+            (DATA_CHUNK_SIZE as u64 * 4) - 5
+        );
+        assert!(file_metadata.first_sector().is_some());
+        let sector_id = file_metadata.first_sector().unwrap();
+        let Sector::FileData(sector_data) = container.read_sector(sector_id).unwrap() else {
+            panic!("Sector is not FileData.");
+        };
+        let mut sector_1_data = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        sector_1_data.resize(DATA_CHUNK_SIZE - 5, 17);
+        sector_1_data.resize(DATA_CHUNK_SIZE, 91);
+        assert_eq!(
+            &sector_1_data[0..DATA_CHUNK_SIZE],
+            &sector_data.data()[0..DATA_CHUNK_SIZE]
+        );
+        assert!(sector_data.next().is_some());
+        let sector_id = sector_data.next().unwrap();
+        let Sector::FileData(sector_data) = container.read_sector(sector_id).unwrap() else {
+            panic!("Sector is not FileData.");
+        };
+        let sector_2_data = vec![91; DATA_CHUNK_SIZE];
+        assert_eq!(
+            &sector_2_data[0..DATA_CHUNK_SIZE],
+            &sector_data.data()[0..DATA_CHUNK_SIZE]
+        );
+
+        assert!(sector_data.next().is_some());
+        let sector_id = sector_data.next().unwrap();
+        let Sector::FileData(sector_data) = container.read_sector(sector_id).unwrap() else {
+            panic!("Sector is not FileData.");
+        };
+        let sector_3_data = vec![91; DATA_CHUNK_SIZE];
+        assert_eq!(
+            &sector_3_data[0..DATA_CHUNK_SIZE],
+            &sector_data.data()[0..DATA_CHUNK_SIZE]
+        );
+
+        assert!(sector_data.next().is_some());
+        let sector_id = sector_data.next().unwrap();
+        let Sector::FileData(sector_data) = container.read_sector(sector_id).unwrap() else {
+            panic!("Sector is not FileData.");
+        };
+        let sector_4_data = vec![91; DATA_CHUNK_SIZE - 5];
+        assert_eq!(sector_data.data_length(), DATA_CHUNK_SIZE as u64 - 5);
+        assert_eq!(
+            &sector_4_data[0..DATA_CHUNK_SIZE - 5],
+            &sector_data.data()[0..DATA_CHUNK_SIZE - 5]
+        );
 
         remove_file("/tmp/canard").unwrap();
     }
