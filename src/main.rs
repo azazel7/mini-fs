@@ -1,9 +1,10 @@
 use clap::{crate_version, Arg, ArgAction, Command};
 use fuser::MountOption;
+use anyhow::{Context, Result};
 
 use mini_fs::{fuse_interface::FuseFs, logger::Logger};
 
-fn main() {
+fn main() -> Result<()>{
     let appname = "mini-fs";
     let matches = Command::new(appname)
         .version(crate_version!())
@@ -29,11 +30,11 @@ fn main() {
         )
         .get_matches();
     env_logger::init();
-    let mountpoint = matches.get_one::<String>("MOUNT_POINT").unwrap();
-    let container_name = matches.get_one::<String>("CONTAINER").unwrap();
+    let mountpoint = matches.get_one::<String>("MOUNT_POINT").context("No mount point")?;
+    let container_name = matches.get_one::<String>("CONTAINER").context("No container file")?;
     let options = vec![MountOption::RW, MountOption::FSName(appname.to_string())];
     let logger = Logger::new(appname.to_string(), matches.get_flag("allow-notification"));
-    //TODO Check error message from here
-    let fuse_fs = FuseFs::new(container_name.to_string(), logger).unwrap();
-    fuser::mount2(fuse_fs, mountpoint, &options).unwrap();
+    let fuse_fs = FuseFs::new(container_name.to_string(), logger)?;
+    fuser::mount2(fuse_fs, mountpoint, &options).context("fuser::mount2 ")?;
+    Ok(())
 }

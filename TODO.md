@@ -1,33 +1,34 @@
-- [ ] Make a tests
+- [x] Make a tests
     - [x] Make test to create a file.
     - [x] Make test to write a file
     - [x] Make test to read a file
     - [x] Make test to delete a file
-    - [ ] Make unit test on primitives
-- [ ] Split sector.rs in multiple files.
-- [ ] Make primitive functions in Container
+    - [x] Make unit test on primitives
+- [x] Split sector.rs in multiple files.
+- [x] Make primitive functions in Container
     - [x] primitive to read/write sectors
         - [x] Use Seek from File to place
     - [x] primitive to add new sectors at the end of the file
     - [x] primitive to find an empty sector
-    - [ ] primitive to get next sector
-    - [ ] primitive to locate the writing offset to write in a file
-        - [ ] Go through the sector with their size
-        - [ ] Locate the place. 
-        - [ ] A write may concern multiple sectors
-    - [ ] Find the filename based on ino
-- [ ] Implement notifications*
+    - [x] primitive to get next sector
+    - [x] primitive to locate the writing offset to write in a file
+        - [x] Go through the sector with their size
+        - [x] Locate the place. 
+        - [x] A write may concern multiple sectors
+    - [x] Find the filename based on ino
+- [x] Implement notifications*
     - [x] Log file given as parameter*
     - [x] Try with notify-send crates?
-    - [ ] Log Opendir, Closedir, Open, Create, flush, release, releasedir
-- [ ] File management
+    - [x] Log Opendir, Closedir, Open, Create, flush, release, releasedir
+- [x] File management
     - [x] Add file*
     - [x] Delete file
-    - [ ] Read file
-    - [ ] write file
+    - [x] Read file
+    - [x] write file
     - [x] Open file*
     - [x] Close file*
-    - [ ] Get attr should return the size of the file
+    - [x] Get attr should return the size of the file
+    - [x] Set attr should truncate a file is size is shorter
 - [ ] Make directory
     - [ ] Delete directory
     - [x] Readdir
