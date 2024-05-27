@@ -100,20 +100,47 @@ impl Filesystem for FuseFs {
         ino: u64,
         _fh: u64,
         offset: i64,
-        _size: u32,
+        size: u32,
         _flags: i32,
         _lock: Option<u64>,
         reply: ReplyData,
     ) {
-        eprintln!("read ino {}", ino);
-        //     reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
-        reply.error(ENOENT);
+        eprintln!("Read ino {ino} (offset={offset}, size={size})");
+        let mut data = Vec::new();
+        let ret = self.container.read(ino, offset, size as u64, &mut data);
+        if let Ok(_read) = ret {
+            reply.data(&data);
+        } else {
+            reply.error(ENOENT);
+        }
+    }
+    fn write(
+        &mut self,
+        _req: &Request<'_>,
+        ino: u64,
+        _fh: u64,
+        offset: i64,
+        data: &[u8],
+        _write_flags: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
+        reply: fuser::ReplyWrite,
+    ) {
+        eprintln!("Write ino {ino} (offset={offset}, data={data:?})");
+        let result = self.container.write(ino, offset, data);
+        if let Ok(written) = result {
+            reply.written(written as u32);
+        } else {
+            reply.error(ENOENT);
+        }
     }
 
     fn opendir(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: fuser::ReplyOpen) {
         let fd = self.container.opendir(ino);
         if let Ok(fd) = fd {
             reply.opened(fd, flags as u32)
+        } else {
+            reply.error(ENOENT);
         }
     }
 
@@ -148,11 +175,12 @@ impl Filesystem for FuseFs {
         _req: &Request<'_>,
         parent: u64,
         name: &OsStr,
-        mode: u32,
-        umask: u32,
+        _mode: u32,
+        _umask: u32,
         flags: i32,
         reply: fuser::ReplyCreate,
     ) {
+        eprintln!("Create parent {parent} name={name:?}");
         self.logger.log(EventType::Open, &format!("{name:?}"));
         let ret = self
             .container
@@ -176,14 +204,16 @@ impl Filesystem for FuseFs {
                 blksize: 512,
             };
 
-            reply.created(&TTL, &attr, 1, 1, flags as u32);
+            reply.created(&TTL, &attr, 1, 0, 0);
         } else {
             eprintln!("{:?}", ret);
             reply.error(ENOSYS);
         }
     }
-    fn open(&mut self, _req: &Request<'_>, _ino: u64, _flags: i32, reply: fuser::ReplyOpen) {
-        self.logger.log(EventType::Open, &format!("{_ino:?}"));
+    fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: fuser::ReplyOpen) {
+        eprintln!("Open ino {ino}");
+        self.logger.log(EventType::Open, &format!("{ino:?}"));
+        reply.opened(0, 0);
     }
     fn release(
         &mut self,
@@ -195,10 +225,13 @@ impl Filesystem for FuseFs {
         _flush: bool,
         reply: ReplyEmpty,
     ) {
+        eprintln!("Release ino {_ino}");
         self.logger.log(EventType::Close, &format!("{_ino:?}"));
+        reply.ok();
     }
-    fn flush(&mut self, _req: &Request<'_>, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
+    fn flush(&mut self, _req: &Request<'_>, ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
         self.logger.log(EventType::Close, &format!("{ino:?}"));
+        reply.ok();
     }
     fn mkdir(
         &mut self,
