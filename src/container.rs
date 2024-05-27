@@ -724,6 +724,44 @@ impl Container {
         }
         bail!("Inode {ino} not found in parent directory");
     }
+    pub fn truncate(&mut self, ino: u64, offset: u64) -> Result<()> {
+        let (metadata_sector_id, mut metadata_sector) = self.find_ino_sector(ino)?;
+        let Sector::FileMetadata(file_metadata) = &mut metadata_sector else {
+            bail!("Inode {ino} is not a directory.");
+        };
+        if offset > file_metadata.length_byte() {
+            bail!("Offset is too large for truncating (offset={offset}, file size={}.", file_metadata.length_byte());
+        } else if offset == file_metadata.length_byte() {
+            return Ok(());
+        }
+        file_metadata.set_length_byte(offset);
+        let mut current_sector_id = file_metadata.first_sector();
+        self.write_sector(metadata_sector_id, &metadata_sector)?;
+        let mut file_index = 0;
+
+        //find offset
+        while let Some(sector_id) = current_sector_id {
+            let mut sector = self.read_sector(sector_id)?;
+            let Sector::FileData(sector_data) = &mut sector else {
+                bail!("Sector {sector_id} (ino {ino} is not a FileData {sector:?}");
+            };
+            current_sector_id = sector_data.next();
+            if offset >= file_index + DATA_CHUNK_SIZE as u64 {
+                current_sector_id = sector_data.next();
+                file_index += DATA_CHUNK_SIZE as u64;
+                continue;
+            }
+            //Check if offset starts at this sector
+            else if offset >= file_index && offset < file_index + DATA_CHUNK_SIZE as u64 {
+                sector_data.set_data_length(offset - file_index);
+                self.write_sector(sector_id, &sector)?;
+            } else if offset < file_index {
+                sector_data.set_data_length(0);
+                self.write_sector(sector_id, &sector)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
