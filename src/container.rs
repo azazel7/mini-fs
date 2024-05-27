@@ -597,6 +597,86 @@ impl Container {
 
         Ok(data.len().try_into()?)
     }
+    pub fn read(&mut self, ino: u64, offset: i64, size: u64, data: &mut Vec<u8>) -> Result<u64> {
+        //TODO What is offset? The offset base on the beginning of a file or the hyphothetical
+        //cursor?
+        if offset < 0 {
+            bail!("Reading at a negative offset (offset={offset})");
+        }
+        let offset = offset as u64;
+        let (_metadata_sector_id, mut metadata_sector) = self.find_ino_sector(ino)?;
+        let Sector::FileMetadata(file_metadata) = &mut metadata_sector else {
+            bail!("Inode {ino} is not a directory.");
+        };
+        if offset > file_metadata.length_byte() {
+            return Ok(0);
+        }
+
+        let mut current_sector_id = file_metadata.first_sector();
+        let mut file_index = 0;
+        let mut sector_index = 0;
+
+        let mut starting_sector = None;
+        //find offset
+        while let Some(sector_id) = current_sector_id {
+            let mut sector = self.read_sector(sector_id)?;
+            let Sector::FileData(sector_data) = &mut sector else {
+                bail!("Sector {sector_id} (ino {ino} is not a FileData {sector:?}");
+            };
+            if offset >= file_index + DATA_CHUNK_SIZE as u64 {
+                current_sector_id = sector_data.next();
+                file_index += DATA_CHUNK_SIZE as u64;
+                continue;
+            }
+
+            //Check if offset starts at this sector
+            if offset >= file_index && offset < file_index + DATA_CHUNK_SIZE as u64 {
+                starting_sector = Some(sector_id);
+                sector_index = (offset - file_index) as usize;
+                break;
+            }
+        }
+
+        let mut current_sector_id = if let Some(a) = starting_sector {
+            a
+        } else {
+            bail!("Couldn't find the offset");
+        };
+
+        //Loop through the sectors to read the data
+        loop {
+            let mut sector = self.read_sector(current_sector_id)?;
+            let Sector::FileData(sector_data) = &mut sector else {
+                bail!("Sector {current_sector_id} (ino {ino} is not a FileData {sector:?}");
+            };
+            //Remaining qty to read from data
+            let data_qty = size as usize - data.len();
+            //Maximum qty readable in that sector
+            let read_qty = data_qty.min(sector_data.data_length() as usize - sector_index as usize);
+
+            //Read the data from FileData struct
+            let slice = &sector_data.data()[sector_index..sector_index + read_qty];
+            data.extend_from_slice(slice);
+
+            //Update index
+            if size == data.len() as u64 {
+                //We are done reading
+                break;
+            }
+            sector_index = 0;
+            file_index += DATA_CHUNK_SIZE as u64;
+
+            //Append a new sector if needed
+            if let Some(next_sector_id) = sector_data.next() {
+                current_sector_id = next_sector_id;
+            } else {
+                //EOF
+                break;
+            }
+        }
+
+        Ok(data.len().try_into()?)
+    }
 }
 
 #[cfg(test)]
@@ -931,8 +1011,9 @@ mod tests {
     }
     #[test]
     fn write() {
-        let _ = remove_file("/tmp/canard");
-        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        let container_name = "/tmp/canard_write";
+        let _ = remove_file(container_name);
+        let mut container = Container::new(container_name.to_string()).unwrap();
 
         let file_inode = container
             .create(1, OsStr::new("canard.txt"), sector::FileType::Regular)
@@ -1081,6 +1162,53 @@ mod tests {
             &sector_data.data()[0..DATA_CHUNK_SIZE - 5]
         );
 
-        remove_file("/tmp/canard").unwrap();
+        remove_file(container_name).unwrap();
+    }
+    #[test]
+    fn read() {
+        let container_name = "/tmp/canard_read";
+        let _ = remove_file(container_name);
+        let mut container = Container::new(container_name.to_string()).unwrap();
+
+        let file_inode = container
+            .create(1, OsStr::new("canard.txt"), sector::FileType::Regular)
+            .unwrap();
+
+        //Phase 1, First simple write
+        let mut data = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        data.resize(DATA_CHUNK_SIZE + data.len(), 17);
+        data.resize((DATA_CHUNK_SIZE * 4) - 5, 91);
+        let written = container.write(file_inode, 0, &data).unwrap();
+        assert_eq!(written, data.len() as u64);
+
+        let to_test = vec![
+            (0, 10),
+            (10, DATA_CHUNK_SIZE),
+            (DATA_CHUNK_SIZE - 5, 10),
+            (DATA_CHUNK_SIZE - 5, DATA_CHUNK_SIZE * 10),
+        ];
+
+        for (offset, size) in to_test {
+            eprintln!(
+                "Read Section offset={offset}, size={size} (data size {})",
+                data.len()
+            );
+            let size = size as u64;
+            let mut read_data = Vec::new();
+            let read = container
+                .read(file_inode, offset as i64, size, &mut read_data)
+                .unwrap();
+
+            let expected_read = if offset as u64 + size > data.len() as u64 {
+                data.len() as u64 - offset as u64
+            } else {
+                size
+            };
+            assert_eq!(read, expected_read);
+            let src_slice = &data[offset as usize..(offset as u64 + read) as usize];
+            let read_slice = &read_data[0..read as usize];
+            assert_eq!(src_slice, read_slice);
+        }
+        remove_file(container_name).unwrap();
     }
 }
