@@ -72,6 +72,9 @@ impl FileMetadata {
     pub fn increase_length_byte(&mut self, qty: u64) {
         self.length_byte += qty;
     }
+    pub fn set_length_byte(&mut self, length_byte: u64) {
+        self.length_byte = length_byte;
+    }
 }
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]

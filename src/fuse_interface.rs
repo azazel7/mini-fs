@@ -4,11 +4,11 @@ use crate::sector;
 use anyhow::Result;
 use fuser::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
-    Request,
+    ReplyLseek, Request, TimeOrNow,
 };
-use libc::{ENOENT, ENOSYS};
+use libc::{EIO, ENOENT, ENOSYS, O_APPEND, O_CREAT, O_EXCL, O_TRUNC};
 use std::ffi::OsStr;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const TTL: Duration = Duration::from_secs(1); // 1 second
 
@@ -43,7 +43,7 @@ impl Filesystem for FuseFs {
         };
         if let Some(file_attr) = ret {
             let attr: FileAttr = FileAttr {
-                ino : file_attr.ino,
+                ino: file_attr.ino,
                 size: file_attr.size,
                 blocks: 1,
                 atime: UNIX_EPOCH, // 1970-01-01 00:00:00
@@ -181,11 +181,12 @@ impl Filesystem for FuseFs {
         reply: fuser::ReplyCreate,
     ) {
         eprintln!("Create parent {parent} name={name:?}");
-        self.logger.log(EventType::Open, &format!("{name:?}"));
         let ret = self
             .container
             .create(parent, name, sector::FileType::Regular);
         if let Ok(ino) = ret {
+            self.logger
+                .log(EventType::Open, &format!("{name:?} (inode={ino:?})"));
             let attr: FileAttr = FileAttr {
                 ino,
                 size: 0,
@@ -206,31 +207,175 @@ impl Filesystem for FuseFs {
 
             reply.created(&TTL, &attr, 1, 0, 0);
         } else {
-            eprintln!("{:?}", ret);
+            self.logger.log(EventType::Open, &format!("{name:?}"));
             reply.error(ENOSYS);
         }
     }
     fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: fuser::ReplyOpen) {
-        eprintln!("Open ino {ino}");
-        self.logger.log(EventType::Open, &format!("{ino:?}"));
+        eprintln!("Open ino {ino} flags={flags}");
+        match flags & libc::O_ACCMODE {
+            libc::O_RDONLY => {
+                eprintln!("O_RDONLY");
+                // Behavior is undefined, but most filesystems return EACCES
+                if flags & libc::O_TRUNC != 0 {
+                    eprintln!("O_TRUNC");
+                    reply.error(libc::EACCES);
+                    return;
+                }
+            }
+            libc::O_WRONLY => eprintln!("O_WRONLY"),
+            libc::O_RDWR => eprintln!("O_WRONLY"),
+            // Exactly one access mode flag must be specified
+            _ => {
+                eprintln!("Other");
+                reply.error(libc::EINVAL);
+                return;
+            }
+        };
+
+        if let Ok(name) = self.container.lookup_name(ino) {
+            self.logger
+                .log(EventType::Open, &format!("{name:?} (inode={ino:?})"));
+        } else {
+            self.logger.log(EventType::Open, &format!("{ino:?}"));
+        }
         reply.opened(0, 0);
+    }
+    fn rename(
+        &mut self,
+        _req: &Request<'_>,
+        parent: u64,
+        name: &OsStr,
+        newparent: u64,
+        newname: &OsStr,
+        flags: u32,
+        reply: ReplyEmpty,
+    ) {
+        eprintln!(
+            "[Not Implemented] rename(parent: {:#x?}, name: {:?}, newparent: {:#x?}, \
+            newname: {:?}, flags: {})",
+            parent, name, newparent, newname, flags,
+        );
+        reply.error(ENOSYS);
+    }
+    fn mknod(
+        &mut self,
+        _req: &Request<'_>,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+        rdev: u32,
+        reply: ReplyEntry,
+    ) {
+        eprintln!(
+            "[Not Implemented] mknod(parent: {:#x?}, name: {:?}, mode: {}, \
+            umask: {:#x?}, rdev: {})",
+            parent, name, mode, umask, rdev
+        );
+        reply.error(ENOSYS);
+    }
+    fn lseek(
+        &mut self,
+        _req: &Request<'_>,
+        ino: u64,
+        fh: u64,
+        offset: i64,
+        whence: i32,
+        reply: ReplyLseek,
+    ) {
+        eprintln!(
+            "[Not Implemented] lseek(ino: {:#x?}, fh: {}, offset: {}, whence: {})",
+            ino, fh, offset, whence
+        );
+        reply.error(ENOSYS);
+    }
+    fn setattr(
+        &mut self,
+        _req: &Request<'_>,
+        ino: u64,
+        mode: Option<u32>,
+        uid: Option<u32>,
+        gid: Option<u32>,
+        size: Option<u64>,
+        _atime: Option<TimeOrNow>,
+        _mtime: Option<TimeOrNow>,
+        _ctime: Option<SystemTime>,
+        fh: Option<u64>,
+        _crtime: Option<SystemTime>,
+        _chgtime: Option<SystemTime>,
+        _bkuptime: Option<SystemTime>,
+        flags: Option<u32>,
+        reply: ReplyAttr,
+    ) {
+        if let Some(size) = size {
+            let ret = self.container.truncate(ino, size);
+            if ret.is_err() {
+                eprintln!("{:?}", ret);
+                reply.error(EIO);
+                return;
+            }
+        }
+        let Ok(ret) = self.container.getattr(ino) else {
+            reply.error(ENOENT);
+            return;
+        };
+        if let Some(file_attr) = ret {
+            let attr: FileAttr = FileAttr {
+                ino,
+                size: file_attr.size,
+                blocks: 1,
+                atime: UNIX_EPOCH, // 1970-01-01 00:00:00
+                mtime: UNIX_EPOCH,
+                ctime: UNIX_EPOCH,
+                crtime: UNIX_EPOCH,
+                kind: file_attr.filetype,
+                perm: 0o777,
+                nlink: 1,
+                uid: 501,
+                gid: 20,
+                rdev: 0,
+                flags: 0,
+                blksize: 512,
+            };
+            reply.attr(&TTL, &attr);
+        } else {
+            reply.error(ENOENT);
+        }
     }
     fn release(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
+        ino: u64,
         _fh: u64,
         _flags: i32,
         _lock_owner: Option<u64>,
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        eprintln!("Release ino {_ino}");
-        self.logger.log(EventType::Close, &format!("{_ino:?}"));
+        eprintln!("Release ino {ino}");
+        if let Ok(name) = self.container.lookup_name(ino) {
+            self.logger
+                .log(EventType::Close, &format!("{name:?} (inode={ino:?})"));
+        } else {
+            self.logger.log(EventType::Close, &format!("{ino:?}"));
+        }
         reply.ok();
     }
-    fn flush(&mut self, _req: &Request<'_>, ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
-        self.logger.log(EventType::Close, &format!("{ino:?}"));
+    fn flush(
+        &mut self,
+        _req: &Request<'_>,
+        ino: u64,
+        _fh: u64,
+        _lock_owner: u64,
+        reply: ReplyEmpty,
+    ) {
+        if let Ok(name) = self.container.lookup_name(ino) {
+            self.logger
+                .log(EventType::Close, &format!("{name:?} (inode={ino:?})"));
+        } else {
+            self.logger.log(EventType::Close, &format!("{ino:?}"));
+        }
         reply.ok();
     }
     fn mkdir(
