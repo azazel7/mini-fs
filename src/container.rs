@@ -21,9 +21,9 @@ pub struct Container {
 }
 #[derive(Debug)]
 pub struct Attr {
-    pub ino : u64,
-    pub filetype : FileType,
-    pub size : u64,
+    pub ino: u64,
+    pub filetype: FileType,
+    pub size: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -308,7 +308,6 @@ impl Container {
         while let Some(sector_id) = next_sector {
             let base_sector = self.read_sector(sector_id)?;
             let Sector::DirData(sector) = base_sector else {
-                eprintln!("{base_sector:?}");
                 bail!("Directory sector is not DirData (inode {ino}, sector {sector_id})");
             };
             for entry in sector.entries() {
@@ -400,10 +399,18 @@ impl Container {
     pub fn getattr(&mut self, ino: u64) -> Result<Option<Attr>> {
         let (_sector_id, sector) = self.find_ino_sector(ino)?;
         if let Sector::DirMetadata(_) = sector {
-            let attr = Attr{ino, filetype : FileType::Directory, size: 0};
+            let attr = Attr {
+                ino,
+                filetype: FileType::Directory,
+                size: 0,
+            };
             return Ok(Some(attr));
         } else if let Sector::FileMetadata(file_metadata) = sector {
-            let attr = Attr{ino, filetype : FileType::RegularFile, size: file_metadata.length_byte()};
+            let attr = Attr {
+                ino,
+                filetype: FileType::RegularFile,
+                size: file_metadata.length_byte(),
+            };
             return Ok(Some(attr));
         }
         Ok(None)
