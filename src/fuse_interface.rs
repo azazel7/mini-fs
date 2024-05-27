@@ -33,16 +33,24 @@ impl Filesystem for FuseFs {
             reply.error(ENOENT);
             return;
         };
-        if let Some((ino, filetype)) = ret {
+        let Some((ino, _filetype)) = ret else {
+            reply.error(ENOENT);
+            return;
+        };
+        let Ok(ret) = self.container.getattr(ino) else {
+            reply.error(ENOENT);
+            return;
+        };
+        if let Some(file_attr) = ret {
             let attr: FileAttr = FileAttr {
-                ino,
-                size: 0,
+                ino : file_attr.ino,
+                size: file_attr.size,
                 blocks: 1,
                 atime: UNIX_EPOCH, // 1970-01-01 00:00:00
                 mtime: UNIX_EPOCH,
                 ctime: UNIX_EPOCH,
                 crtime: UNIX_EPOCH,
-                kind: filetype,
+                kind: file_attr.filetype,
                 perm: 0o777,
                 nlink: 1,
                 uid: 501,
@@ -57,20 +65,21 @@ impl Filesystem for FuseFs {
         }
     }
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
+        eprintln!("Getattr ino {ino}");
         let Ok(ret) = self.container.getattr(ino) else {
             reply.error(ENOENT);
             return;
         };
-        if let Some(filetype) = ret {
+        if let Some(file_attr) = ret {
             let attr: FileAttr = FileAttr {
                 ino,
-                size: 0,
+                size: file_attr.size,
                 blocks: 1,
                 atime: UNIX_EPOCH, // 1970-01-01 00:00:00
                 mtime: UNIX_EPOCH,
                 ctime: UNIX_EPOCH,
                 crtime: UNIX_EPOCH,
-                kind: filetype,
+                kind: file_attr.filetype,
                 perm: 0o777,
                 nlink: 1,
                 uid: 501,

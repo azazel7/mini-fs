@@ -19,6 +19,12 @@ pub struct Container {
     file: File,
     metadata: ContainerMetadata,
 }
+#[derive(Debug)]
+pub struct Attr {
+    pub ino : u64,
+    pub filetype : FileType,
+    pub size : u64,
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ContainerMetadata {
@@ -391,12 +397,14 @@ impl Container {
 
         Ok(new_inode)
     }
-    pub fn getattr(&mut self, ino: u64) -> Result<Option<FileType>> {
+    pub fn getattr(&mut self, ino: u64) -> Result<Option<Attr>> {
         let (_sector_id, sector) = self.find_ino_sector(ino)?;
         if let Sector::DirMetadata(_) = sector {
-            return Ok(Some(FileType::Directory));
-        } else if let Sector::FileMetadata(_) = sector {
-            return Ok(Some(FileType::RegularFile));
+            let attr = Attr{ino, filetype : FileType::Directory, size: 0};
+            return Ok(Some(attr));
+        } else if let Sector::FileMetadata(file_metadata) = sector {
+            let attr = Attr{ino, filetype : FileType::RegularFile, size: file_metadata.length_byte()};
+            return Ok(Some(attr));
         }
         Ok(None)
     }
@@ -940,10 +948,10 @@ mod tests {
             .create(1, OsStr::new("loutre.txt"), sector::FileType::Regular)
             .unwrap();
 
-        let filetype = container.getattr(new_inode).unwrap();
-        assert_eq!(filetype, Some(FileType::RegularFile));
-        let filetype = container.getattr(1).unwrap();
-        assert_eq!(filetype, Some(FileType::Directory));
+        let attr = container.getattr(new_inode).unwrap().unwrap();
+        assert_eq!(attr.filetype, FileType::RegularFile);
+        let attr = container.getattr(1).unwrap().unwrap();
+        assert_eq!(attr.filetype, FileType::Directory);
         let filetype = container.getattr(37);
         assert!(filetype.is_err());
         remove_file(container_name).unwrap();
