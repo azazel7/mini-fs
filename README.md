@@ -12,7 +12,7 @@ created within the mount point to be stored within this container file.
 - [License](#license)
 
 ## Installation
-This project has been tested on Archlinux.
+This project has been tested on Archlinux with Rust 1.77.
 
 ### Dependencies
 This project relies on the following crates:
