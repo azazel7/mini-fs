@@ -688,6 +688,42 @@ impl Container {
 
         Ok(data.len().try_into()?)
     }
+    pub fn lookup_name(&mut self, ino: u64) -> Result<OsString> {
+        let (_sector_id, sector) = self.find_ino_sector(ino)?;
+        let parent_ino = if let Sector::FileMetadata(file_metadata) = sector {
+            file_metadata.parent()
+        } else if let Sector::DirMetadata(dir_metadata) = sector {
+            dir_metadata.parent()
+        } else {
+            bail!("Sector is not a metadata sector.");
+        };
+        let Some(parent_ino) = parent_ino else {
+            //We are checking the root
+            return Ok(OsString::from_str("/")?);
+        };
+        let (_sector_id, sector) = self.find_ino_sector(parent_ino)?;
+
+        let Sector::DirMetadata(dir_metadata) = sector else {
+            bail!("Parent of inode {ino} is not a directory");
+        };
+
+        let mut next_sector = dir_metadata.first_sector();
+        //Iterate through all sector of directory
+        while let Some(sector_id) = next_sector {
+            let base_sector = self.read_sector(sector_id)?;
+            let Sector::DirData(sector) = base_sector else {
+                bail!("Directory sector is not DirData (inode {ino}, sector {sector_id})");
+            };
+            for entry in sector.entries() {
+                if !entry.empty && entry.ino == ino {
+                    let ename = OsString::from(entry.name.to_string());
+                    return Ok(ename);
+                }
+            }
+            next_sector = sector.next_sector();
+        }
+        bail!("Inode {ino} not found in parent directory");
+    }
 }
 
 #[cfg(test)]
@@ -1232,6 +1268,39 @@ mod tests {
             let read_slice = &read_data[0..read as usize];
             assert_eq!(src_slice, read_slice);
         }
+        remove_file(container_name).unwrap();
+    }
+    #[test]
+    fn lookup_name() {
+        let container_name = "/tmp/canard_lookup_name";
+        let _ = remove_file(container_name);
+        let mut container = Container::new(container_name.to_string()).unwrap();
+
+        let inode1 = container
+            .create(1, OsStr::new("loutre.txt"), sector::FileType::Regular)
+            .unwrap();
+        let inode2 = container
+            .create(1, OsStr::new("canard.txt"), sector::FileType::Regular)
+            .unwrap();
+        let inode_dir = container
+            .create(1, OsStr::new("ocean"), sector::FileType::Directory)
+            .unwrap();
+        let inode3 = container
+            .create(
+                inode_dir,
+                OsStr::new("saumon.txt"),
+                sector::FileType::Regular,
+            )
+            .unwrap();
+
+        let name1 = container.lookup_name(inode1).unwrap();
+        assert_eq!(name1, OsString::from_str("loutre.txt").unwrap());
+        let name2 = container.lookup_name(inode2).unwrap();
+        assert_eq!(name2, OsString::from_str("canard.txt").unwrap());
+        let name3 = container.lookup_name(inode3).unwrap();
+        assert_eq!(name3, OsString::from_str("saumon.txt").unwrap());
+        let name_dir = container.lookup_name(inode_dir).unwrap();
+        assert_eq!(name_dir, OsString::from_str("ocean").unwrap());
         remove_file(container_name).unwrap();
     }
 }
