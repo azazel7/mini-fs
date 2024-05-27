@@ -684,18 +684,20 @@ mod tests {
 
     #[test]
     fn append_empty_sector() {
-        let _ = remove_file("/tmp/canard");
-        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        let container_name = "/tmp/canard_append_empty";
+        let _ = remove_file(container_name);
+        let mut container = Container::new(container_name.to_string()).unwrap();
         let sector_count = container.metadata.sector_count;
         container.append_empty_sector().unwrap();
         assert_eq!(container.metadata.sector_count, sector_count + 1);
         assert_eq!(container.metadata.last_empty_sector, Some(sector_count));
-        remove_file("/tmp/canard").unwrap();
+        remove_file(container_name).unwrap();
     }
     #[test]
     fn read_write_sector() {
-        let _ = remove_file("/tmp/canard");
-        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        let container_name = "/tmp/canard_read_write_sector";
+        let _ = remove_file(container_name);
+        let mut container = Container::new(container_name.to_string()).unwrap();
         container.append_empty_sector().unwrap();
         container.append_empty_sector().unwrap();
         container.append_empty_sector().unwrap();
@@ -715,12 +717,13 @@ mod tests {
             assert_eq!(sector.previous(), Some(2));
             assert_eq!(sector.next(), None);
         }
-        remove_file("/tmp/canard").unwrap();
+        remove_file(container_name).unwrap();
     }
     #[test]
     fn free_sector() {
-        let _ = remove_file("/tmp/canard");
-        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        let container_name = "/tmp/canard_free_sector";
+        let _ = remove_file(container_name);
+        let mut container = Container::new(container_name.to_string()).unwrap();
         container.append_empty_sector().unwrap();
         container.append_empty_sector().unwrap();
         container.append_empty_sector().unwrap();
@@ -823,12 +826,13 @@ mod tests {
         assert_eq!(container.metadata.first_empty_sector, Some(3));
         assert_eq!(container.metadata.last_empty_sector, Some(2));
 
-        remove_file("/tmp/canard").unwrap();
+        remove_file(container_name).unwrap();
     }
     #[test]
     fn delete_file() {
-        let _ = remove_file("/tmp/canard");
-        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        let container_name = "/tmp/canard_delete_file";
+        let _ = remove_file(container_name);
+        let mut container = Container::new(container_name.to_string()).unwrap();
         container.append_empty_sector().unwrap();
         container.append_empty_sector().unwrap();
         container.append_empty_sector().unwrap();
@@ -895,22 +899,24 @@ mod tests {
             Sector::Empty(_)
         ));
 
-        remove_file("/tmp/canard").unwrap();
+        remove_file(container_name).unwrap();
     }
     #[test]
     fn get_empty_sector() {
-        let _ = remove_file("/tmp/canard");
-        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        let container_name = "/tmp/canard_get_empty_sector";
+        let _ = remove_file(container_name);
+        let mut container = Container::new(container_name.to_string()).unwrap();
         container.append_empty_sector().unwrap();
         assert_eq!(container.metadata.sector_count, 2);
         let empty_sector = container.get_empty_sector().unwrap();
         assert_eq!(empty_sector, 1);
-        remove_file("/tmp/canard").unwrap();
+        remove_file(container_name).unwrap();
     }
     #[test]
     fn find_ino_sector() {
-        let _ = remove_file("/tmp/canard");
-        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        let container_name = "/tmp/canard_find_ino_sector";
+        let _ = remove_file(container_name);
+        let mut container = Container::new(container_name.to_string()).unwrap();
         let new_inode = container
             .create(1, OsStr::new("loutre.txt"), sector::FileType::Regular)
             .unwrap();
@@ -920,12 +926,14 @@ mod tests {
         assert!(ret.is_ok());
         let ret = container.find_ino_sector(37);
         assert!(ret.is_err());
-        remove_file("/tmp/canard").unwrap();
+        remove_file(container_name).unwrap();
     }
     #[test]
     fn getattr() {
-        let _ = remove_file("/tmp/canard");
-        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        let container_name = "/tmp/canard_getattr";
+        let _ = remove_file(container_name);
+        let mut container = Container::new(container_name.to_string()).unwrap();
+
         container.append_empty_sector().unwrap();
         container.append_empty_sector().unwrap();
         let new_inode = container
@@ -938,12 +946,14 @@ mod tests {
         assert_eq!(filetype, Some(FileType::Directory));
         let filetype = container.getattr(37);
         assert!(filetype.is_err());
-        remove_file("/tmp/canard").unwrap();
+        remove_file(container_name).unwrap();
     }
     #[test]
     fn readdir() {
-        let _ = remove_file("/tmp/canard");
-        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        let container_name = "/tmp/canard_readdir";
+        let _ = remove_file(container_name);
+        let mut container = Container::new(container_name.to_string()).unwrap();
+
         let inode1 = container
             .create(1, OsStr::new("loutre.txt"), sector::FileType::Regular)
             .unwrap();
@@ -978,12 +988,14 @@ mod tests {
         assert!(entries_inode.contains(&inode2));
         assert!(entries_inode.contains(&inode3));
 
-        remove_file("/tmp/canard").unwrap();
+        remove_file(container_name).unwrap();
     }
     #[test]
     fn lookup() {
-        let _ = remove_file("/tmp/canard");
-        let mut container = Container::new("/tmp/canard".to_string()).unwrap();
+        let container_name = "/tmp/canard_lookup";
+        let _ = remove_file(container_name);
+        let mut container = Container::new(container_name.to_string()).unwrap();
+
         let inode1 = container
             .create(1, OsStr::new("loutre.txt"), sector::FileType::Regular)
             .unwrap();
@@ -1003,7 +1015,7 @@ mod tests {
         assert_eq!(ino, inode2);
         assert_eq!(filetype, FileType::RegularFile);
 
-        remove_file("/tmp/canard").unwrap();
+        remove_file(container_name).unwrap();
     }
     #[test]
     fn write() {
