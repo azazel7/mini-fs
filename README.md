@@ -80,7 +80,7 @@ Mini-FS is not a fully-fledged filesystem and lacks several operations, includin
 - Changing file permissions (currently fixed at 777).
 - Renaming files or directories.
 - Names limited to 30 bytes.
-- Not thread-safe.
+- (Probably) not thread-safe.
 
 Additionally, the container structure exhibits some inefficiencies that could be addressed for improved performance:
 
