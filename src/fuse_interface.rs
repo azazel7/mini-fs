@@ -6,7 +6,7 @@ use fuser::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
     ReplyLseek, Request, TimeOrNow,
 };
-use libc::{EIO, ENOENT, ENOSYS, O_APPEND, O_CREAT, O_EXCL, O_TRUNC};
+use libc::{EIO, ENOENT, ENOSYS};
 use std::ffi::OsStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -28,7 +28,6 @@ impl FuseFs {
 
 impl Filesystem for FuseFs {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        eprintln!("lookup {parent} {:?}", name);
         let Ok(ret) = self.container.lookup(parent, name) else {
             reply.error(ENOENT);
             return;
@@ -65,7 +64,6 @@ impl Filesystem for FuseFs {
         }
     }
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
-        eprintln!("Getattr ino {ino}");
         let Ok(ret) = self.container.getattr(ino) else {
             reply.error(ENOENT);
             return;
@@ -105,7 +103,6 @@ impl Filesystem for FuseFs {
         _lock: Option<u64>,
         reply: ReplyData,
     ) {
-        eprintln!("Read ino {ino} (offset={offset}, size={size})");
         let mut data = Vec::new();
         let ret = self.container.read(ino, offset, size as u64, &mut data);
         if let Ok(_read) = ret {
@@ -126,7 +123,6 @@ impl Filesystem for FuseFs {
         _lock_owner: Option<u64>,
         reply: fuser::ReplyWrite,
     ) {
-        eprintln!("Write ino {ino} (offset={offset}, data={data:?})");
         let result = self.container.write(ino, offset, data);
         if let Ok(written) = result {
             reply.written(written as u32);
@@ -134,28 +130,31 @@ impl Filesystem for FuseFs {
             reply.error(ENOENT);
         }
     }
-
     fn opendir(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: fuser::ReplyOpen) {
         let fd = self.container.opendir(ino);
+        if let Ok(name) = self.container.lookup_name(ino) {
+            self.logger
+                .log(EventType::OpenDir, &format!("{name:?} (inode={ino:?})"));
+        } else {
+            self.logger.log(EventType::OpenDir, &format!("{ino:?}"));
+        }
         if let Ok(fd) = fd {
-            reply.opened(fd, flags as u32)
+            reply.opened(fd, flags as u32);
         } else {
             reply.error(ENOENT);
         }
     }
-
     fn readdir(
         &mut self,
         _req: &Request,
         ino: u64,
-        _fh: u64,
+        fh: u64,
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        let ret = self.container.readdir(ino, _fh, offset);
+        let ret = self.container.readdir(ino, fh, offset);
         match ret {
-            Err(err) => {
-                eprintln!("{err}");
+            Err(_err) => {
                 reply.error(ENOENT);
             }
             Ok(entries) => {
@@ -177,10 +176,9 @@ impl Filesystem for FuseFs {
         name: &OsStr,
         _mode: u32,
         _umask: u32,
-        flags: i32,
+        _flags: i32,
         reply: fuser::ReplyCreate,
     ) {
-        eprintln!("Create parent {parent} name={name:?}");
         let ret = self
             .container
             .create(parent, name, sector::FileType::Regular);
@@ -211,28 +209,7 @@ impl Filesystem for FuseFs {
             reply.error(ENOSYS);
         }
     }
-    fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: fuser::ReplyOpen) {
-        eprintln!("Open ino {ino} flags={flags}");
-        match flags & libc::O_ACCMODE {
-            libc::O_RDONLY => {
-                eprintln!("O_RDONLY");
-                // Behavior is undefined, but most filesystems return EACCES
-                if flags & libc::O_TRUNC != 0 {
-                    eprintln!("O_TRUNC");
-                    reply.error(libc::EACCES);
-                    return;
-                }
-            }
-            libc::O_WRONLY => eprintln!("O_WRONLY"),
-            libc::O_RDWR => eprintln!("O_WRONLY"),
-            // Exactly one access mode flag must be specified
-            _ => {
-                eprintln!("Other");
-                reply.error(libc::EINVAL);
-                return;
-            }
-        };
-
+    fn open(&mut self, _req: &Request<'_>, ino: u64, _flags: i32, reply: fuser::ReplyOpen) {
         if let Ok(name) = self.container.lookup_name(ino) {
             self.logger
                 .log(EventType::Open, &format!("{name:?} (inode={ino:?})"));
@@ -294,24 +271,24 @@ impl Filesystem for FuseFs {
         &mut self,
         _req: &Request<'_>,
         ino: u64,
-        mode: Option<u32>,
-        uid: Option<u32>,
-        gid: Option<u32>,
+        _mode: Option<u32>,
+        _uid: Option<u32>,
+        _gid: Option<u32>,
         size: Option<u64>,
         _atime: Option<TimeOrNow>,
         _mtime: Option<TimeOrNow>,
         _ctime: Option<SystemTime>,
-        fh: Option<u64>,
+        _fh: Option<u64>,
         _crtime: Option<SystemTime>,
         _chgtime: Option<SystemTime>,
         _bkuptime: Option<SystemTime>,
-        flags: Option<u32>,
+        _flags: Option<u32>,
         reply: ReplyAttr,
     ) {
         if let Some(size) = size {
             let ret = self.container.truncate(ino, size);
             if ret.is_err() {
-                eprintln!("{:?}", ret);
+                eprintln!("{ret:?}");
                 reply.error(EIO);
                 return;
             }
@@ -343,6 +320,22 @@ impl Filesystem for FuseFs {
             reply.error(ENOENT);
         }
     }
+    fn releasedir(
+        &mut self,
+        _req: &Request<'_>,
+        ino: u64,
+        _fh: u64,
+        _flags: i32,
+        reply: ReplyEmpty,
+    ) {
+        if let Ok(name) = self.container.lookup_name(ino) {
+            self.logger
+                .log(EventType::CloseDir, &format!("{name:?} (inode={ino:?})"));
+        } else {
+            self.logger.log(EventType::CloseDir, &format!("{ino:?}"));
+        }
+        reply.ok();
+    }
     fn release(
         &mut self,
         _req: &Request<'_>,
@@ -353,7 +346,6 @@ impl Filesystem for FuseFs {
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        eprintln!("Release ino {ino}");
         if let Ok(name) = self.container.lookup_name(ino) {
             self.logger
                 .log(EventType::Close, &format!("{name:?} (inode={ino:?})"));
@@ -411,7 +403,6 @@ impl Filesystem for FuseFs {
 
             reply.entry(&TTL, &attr, 1);
         } else {
-            eprintln!("{:?}", ret);
             reply.error(ENOSYS);
         }
     }

@@ -6,7 +6,7 @@ pub struct Logger {
     notification: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum EventType {
     Open,
     Close,
@@ -15,7 +15,7 @@ pub enum EventType {
 }
 
 impl Logger {
-    pub fn new(appname: String, notification: bool) -> Self {
+    pub const fn new(appname: String, notification: bool) -> Self {
         Self {
             appname,
             notification,
@@ -36,11 +36,11 @@ impl Logger {
 impl fmt::Display for EventType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let s = match self {
-            EventType::Open => "Open",
-            EventType::Close => "Close",
-            EventType::OpenDir => "OpenDir",
-            EventType::CloseDir => "CloseDir",
+            Self::Open => "Open",
+            Self::Close => "Close",
+            Self::OpenDir => "OpenDir",
+            Self::CloseDir => "CloseDir",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }

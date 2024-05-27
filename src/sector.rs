@@ -4,7 +4,7 @@ use serde_with::{serde_as, Bytes};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Sector {
-    Empty(EmptySector),
+    Empty(Empty),
     FileMetadata(FileMetadata),
     FileData(FileData),
     DirMetadata(FileMetadata),
@@ -15,21 +15,21 @@ pub const FILE_NAME_SIZE: usize = 30;
 pub const DIR_SECTOR_SIZE: usize = 5;
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-pub struct EmptySector {
+pub struct Empty {
     previous: Option<u64>,
     next: Option<u64>,
 }
-impl EmptySector {
+impl Empty {
     pub fn set_previous(&mut self, sector_id: u64) {
         self.previous = Some(sector_id);
     }
     pub fn set_next(&mut self, sector_id: u64) {
         self.next = Some(sector_id);
     }
-    pub fn previous(&self) -> Option<u64> {
+    pub const fn previous(&self) -> Option<u64> {
         self.previous
     }
-    pub fn next(&self) -> Option<u64> {
+    pub const fn next(&self) -> Option<u64> {
         self.next
     }
 }
@@ -42,7 +42,7 @@ pub struct FileMetadata {
     first_sector: Option<u64>,
 }
 impl FileMetadata {
-    pub fn new(ino: u64, parent: Option<u64>) -> Self {
+    pub const fn new(ino: u64, parent: Option<u64>) -> Self {
         Self {
             ino,
             parent,
@@ -51,13 +51,13 @@ impl FileMetadata {
             first_sector: None,
         }
     }
-    pub fn ino(&self) -> u64 {
+    pub const fn ino(&self) -> u64 {
         self.ino
     }
-    pub fn parent(&self) -> Option<u64> {
+    pub const fn parent(&self) -> Option<u64> {
         self.parent
     }
-    pub fn first_sector(&self) -> Option<u64> {
+    pub const fn first_sector(&self) -> Option<u64> {
         self.first_sector
     }
     pub fn set_first_sector(&mut self, sector_id: u64) {
@@ -66,7 +66,7 @@ impl FileMetadata {
     pub fn increase_length_sector(&mut self) {
         self.length_sector += 1;
     }
-    pub fn length_byte(&self) -> u64 {
+    pub const fn length_byte(&self) -> u64 {
         self.length_byte
     }
     pub fn increase_length_byte(&mut self, qty: u64) {
@@ -86,15 +86,15 @@ pub struct FileData {
     data: [u8; DATA_CHUNK_SIZE],
 }
 impl FileData {
-    pub fn new() -> Self {
-        FileData {
+    pub const fn new() -> Self {
+        Self {
             data_length: 0,
             next_sector: None,
             previous_sector: None,
             data: [0; DATA_CHUNK_SIZE],
         }
     }
-    pub fn next(&self) -> Option<u64> {
+    pub const fn next(&self) -> Option<u64> {
         self.next_sector
     }
     pub fn set_next(&mut self, next: u64) {
@@ -103,10 +103,10 @@ impl FileData {
     pub fn set_previous(&mut self, prev: u64) {
         self.previous_sector = Some(prev);
     }
-    pub fn data(&self) -> &[u8] {
+    pub const fn data(&self) -> &[u8] {
         &self.data
     }
-    pub fn data_length(&self) -> u64 {
+    pub const fn data_length(&self) -> u64 {
         self.data_length
     }
     pub fn set_data_length(&mut self, data_length: u64) {
@@ -117,8 +117,13 @@ impl FileData {
         slice.clone_from_slice(data);
     }
 }
+impl Default for FileData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum FileType {
     Regular,
     Directory,
@@ -131,7 +136,7 @@ pub struct DirEntry {
     pub empty: bool,
 }
 impl DirEntry {
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         Self {
             ino: 0,
             name: String::new(),
@@ -140,7 +145,7 @@ impl DirEntry {
         }
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct DirData {
     next_sector: Option<u64>,
     previous_sector: Option<u64>,
@@ -150,7 +155,7 @@ impl DirData {
     pub fn new() -> Self {
         let mut files = Vec::new();
         let _ = files.resize(DIR_SECTOR_SIZE, DirEntry::empty());
-        DirData {
+        Self {
             next_sector: None,
             previous_sector: None,
             files,
@@ -162,10 +167,10 @@ impl DirData {
     pub fn set_next(&mut self, next: u64) {
         self.next_sector = Some(next);
     }
-    pub fn next_sector(&self) -> Option<u64> {
+    pub const fn next_sector(&self) -> Option<u64> {
         self.next_sector
     }
-    pub fn entries(&self) -> &Vec<DirEntry, DIR_SECTOR_SIZE> {
+    pub const fn entries(&self) -> &Vec<DirEntry, DIR_SECTOR_SIZE> {
         &self.files
     }
     pub fn entries_mut(&mut self) -> &mut Vec<DirEntry, DIR_SECTOR_SIZE> {

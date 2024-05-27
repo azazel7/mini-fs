@@ -1,6 +1,7 @@
 use anyhow::{bail, Ok, Result};
-use fuser::{FileType, ReplyDirectory};
+use fuser::FileType;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::ffi::{OsStr, OsString};
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom};
@@ -10,14 +11,14 @@ use std::str::FromStr;
 use std::usize;
 use std::{fs::File, io::Write};
 
-use crate::sector::{self, DirData, EmptySector, FileData, FileMetadata, Sector, DATA_CHUNK_SIZE};
+use crate::sector::{self, DirData, Empty, FileData, FileMetadata, Sector, DATA_CHUNK_SIZE};
 
 use sector::FILE_NAME_SIZE;
 
 pub struct Container {
-    container_name: String,
+    _container_name: String,
     file: File,
-    metadata: ContainerMetadata,
+    metadata: Metadata,
 }
 #[derive(Debug)]
 pub struct Attr {
@@ -27,7 +28,7 @@ pub struct Attr {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ContainerMetadata {
+pub struct Metadata {
     root_dir_sector: u64,
     sector_count: u64,
     first_empty_sector: Option<u64>,
@@ -38,10 +39,23 @@ pub struct ContainerMetadata {
 impl Container {
     pub fn new(container_name: String) -> Result<Self> {
         //check if file exist
-        let (file, metadata) = if !Path::new(&container_name).exists() {
+        let (file, metadata) = if Path::new(&container_name).exists() {
+            //Load an existing container
+            let mut file = OpenOptions::new()
+                .write(true)
+                .read(true)
+                .open(&container_name)?;
+            let mut buff = [0; size_of::<Metadata>()];
+            let read_count = file.read(&mut buff)?;
+            if read_count < size_of::<Metadata>() {
+                bail!("The file {container_name} is smaller than the container metadata.");
+            }
+            let metadata: Metadata = bincode::deserialize(&buff[..])?;
+            (file, metadata)
+        } else {
             //Initialize the container
             let mut file = File::create_new(&container_name)?;
-            let metadata = ContainerMetadata {
+            let metadata = Metadata {
                 root_dir_sector: 0,
                 sector_count: 1,
                 first_empty_sector: None,
@@ -50,9 +64,9 @@ impl Container {
             };
             let first_sector = Sector::DirMetadata(FileMetadata::new(1, None));
 
-            let mut buff = Vec::with_capacity(size_of::<ContainerMetadata>());
+            let mut buff = Vec::with_capacity(size_of::<Metadata>());
             bincode::serialize_into(&mut buff, &metadata)?;
-            buff.resize(size_of::<ContainerMetadata>(), 0);
+            buff.resize(size_of::<Metadata>(), 0);
             file.write_all(&buff)?;
 
             let mut buff = Vec::with_capacity(size_of::<Sector>());
@@ -61,23 +75,9 @@ impl Container {
             file.write_all(&buff)?;
 
             (file, metadata)
-        } else {
-            //Load an existing container
-            let mut file = OpenOptions::new()
-                .write(true)
-                .read(true)
-                .open(&container_name)?;
-            let mut buff = [0; size_of::<ContainerMetadata>()];
-            let read_count = file.read(&mut buff)?;
-            if read_count < size_of::<ContainerMetadata>() {
-                bail!("The file {container_name} is smaller than the container metadata.");
-            }
-            let metadata: ContainerMetadata = bincode::deserialize(&buff[..])?;
-            eprintln!("Meta data {:?}", metadata);
-            (file, metadata)
         };
         Ok(Self {
-            container_name,
+            _container_name: container_name,
             file,
             metadata,
         })
@@ -87,7 +87,7 @@ impl Container {
             bail!("Seeking out-of-bound sector {sector_id}");
         }
         //Skip the metadata and seek
-        let offset = size_of::<ContainerMetadata>() as u64 + sector_id * size_of::<Sector>() as u64;
+        let offset = size_of::<Metadata>() as u64 + sector_id * size_of::<Sector>() as u64;
         let offset = SeekFrom::Start(offset);
         self.file.seek(offset)?;
 
@@ -104,9 +104,9 @@ impl Container {
     }
     fn write_metadata(&mut self) -> Result<()> {
         self.file.seek(SeekFrom::Start(0))?;
-        let mut buff = Vec::with_capacity(size_of::<ContainerMetadata>());
+        let mut buff = Vec::with_capacity(size_of::<Metadata>());
         bincode::serialize_into(&mut buff, &self.metadata)?;
-        buff.resize(size_of::<ContainerMetadata>(), 0);
+        buff.resize(size_of::<Metadata>(), 0);
         self.file.write_all(&buff)?;
         Ok(())
     }
@@ -115,7 +115,7 @@ impl Container {
             bail!("Seeking out-of-bound sector {sector_id}");
         }
         //Skip the metadata and seek
-        let offset = size_of::<ContainerMetadata>() as u64 + sector_id * size_of::<Sector>() as u64;
+        let offset = size_of::<Metadata>() as u64 + sector_id * size_of::<Sector>() as u64;
         let offset = SeekFrom::Start(offset);
         self.file.seek(offset)?;
 
@@ -128,13 +128,13 @@ impl Container {
         Ok(size_of::<Sector>() as u64)
     }
     fn append_empty_sector(&mut self) -> Result<u64> {
-        let mut empty_sector = EmptySector::default();
+        let mut empty_sector = Empty::default();
         //Set previous if any
         if let Some(last_sector) = self.metadata.last_empty_sector {
             empty_sector.set_previous(last_sector);
         }
         //Place the cursor
-        let offset = size_of::<ContainerMetadata>() as u64
+        let offset = size_of::<Metadata>() as u64
             + self.metadata.sector_count * size_of::<Sector>() as u64; //TODO maybe add a -1
         let offset = SeekFrom::Start(offset);
         self.file.seek(offset)?;
@@ -191,7 +191,7 @@ impl Container {
                 self.metadata.first_empty_sector = empty_sector_data.next();
             }
             self.write_metadata()?;
-            return Ok(empty_sector_id);
+            Ok(empty_sector_id)
         } else {
             bail!("No empty sector available");
         }
@@ -242,7 +242,7 @@ impl Container {
         Ok(self.metadata.next_ino - 1)
     }
     fn free_sector(&mut self, sector_id: u64) -> Result<()> {
-        let mut empty_sector = EmptySector::default();
+        let mut empty_sector = Empty::default();
         if let Sector::Empty(_) = self.read_sector(sector_id)? {
             //Sector is already empty
             return Ok(());
@@ -283,7 +283,7 @@ impl Container {
         Ok(())
     }
     pub fn opendir(&mut self, ino: u64) -> Result<u64> {
-        let (sector_id, sector) = self.find_ino_sector(ino)?;
+        let (_sector_id, _sector) = self.find_ino_sector(ino)?;
         Ok(1)
     }
     pub fn readdir(
@@ -369,7 +369,11 @@ impl Container {
         };
 
         //Should always be valid because it should have failed earlier otherwise (no new empty sector)
-        let entry = sector.entries_mut().get_mut(idx).unwrap();
+        let Some(entry) = sector.entries_mut().get_mut(idx) else {
+            bail!(
+                "Error when accessing directory (inode={parent}) entry {idx}, sector={sector_id}"
+            );
+        };
 
         //Write the entry
         entry.ino = new_inode;
@@ -431,8 +435,8 @@ impl Container {
             //Look for used entry
             for entry in sector.entries() {
                 if !entry.empty {
-                    let ename = OsString::from(entry.name.to_string());
-                    if ename == *name {
+                    let entry_name = OsString::from(entry.name.to_string());
+                    if entry_name == *name {
                         let filetype = match entry.filetype {
                             sector::FileType::Directory => FileType::Directory,
                             sector::FileType::Regular => FileType::RegularFile,
@@ -462,8 +466,8 @@ impl Container {
             //Look for entry with the right name
             for entry in sector.entries_mut() {
                 if !entry.empty {
-                    let ename = OsString::from(entry.name.to_string());
-                    if ename == *name {
+                    let entry_name = OsString::from(entry.name.to_string());
+                    if entry_name == *name {
                         if entry.filetype == sector::FileType::Directory {
                             bail!("{name:?} is a directory.");
                         }
@@ -562,19 +566,19 @@ impl Container {
                 bail!("Sector {current_sector_id} (ino {ino} is not a FileData {sector:?}");
             };
             //Remaining qty to write from data
-            let data_qty = (data.len() - data_index) as usize;
+            let data_qty = data.len() - data_index;
             //Maximum qty writable in that sector
-            let write_qty = data_qty.min(DATA_CHUNK_SIZE - sector_index as usize) as usize;
+            let write_qty = data_qty.min(DATA_CHUNK_SIZE - sector_index);
 
             //Write the data into the FileData struct
-            let slice = &data[data_index..data_index + write_qty as usize];
+            let slice = &data[data_index..data_index + write_qty];
             sector_data.write(slice, sector_index, sector_index + write_qty);
             let prev_data_length = sector_data.data_length() as usize;
 
             let length_diff = if sector_index + write_qty < prev_data_length {
                 0
             } else {
-                sector_index + write_qty - prev_data_length as usize
+                sector_index + write_qty - prev_data_length
             };
             total_data_diff += length_diff;
             sector_data.set_data_length((prev_data_length + length_diff) as u64);
@@ -590,15 +594,17 @@ impl Container {
             file_index += DATA_CHUNK_SIZE as u64;
 
             //Append a new sector if needed
-            if sector_data.next().is_none() {
+            let next_sector_id = if let Some(a) = sector_data.next() {
+                a
+            } else {
                 let empty_sector_id = self.get_empty_sector()?;
                 file_metadata.increase_length_sector();
                 sector_data.set_next(empty_sector_id);
                 let mut next_sector = FileData::new();
                 next_sector.set_previous(current_sector_id);
                 self.write_sector(empty_sector_id, &Sector::FileData(next_sector))?;
-            }
-            let next_sector_id = sector_data.next().unwrap();
+                empty_sector_id
+            };
             self.write_sector(current_sector_id, &sector)?;
             current_sector_id = next_sector_id;
         }
@@ -648,9 +654,7 @@ impl Container {
             }
         }
 
-        let mut current_sector_id = if let Some(a) = starting_sector {
-            a
-        } else {
+        let Some(mut current_sector_id) = starting_sector else {
             bail!("Couldn't find the offset");
         };
 
@@ -663,7 +667,7 @@ impl Container {
             //Remaining qty to read from data
             let data_qty = size as usize - data.len();
             //Maximum qty readable in that sector
-            let read_qty = data_qty.min(sector_data.data_length() as usize - sector_index as usize);
+            let read_qty = data_qty.min(sector_data.data_length() as usize - sector_index);
 
             //Read the data from FileData struct
             let slice = &sector_data.data()[sector_index..sector_index + read_qty];
@@ -729,10 +733,13 @@ impl Container {
         let Sector::FileMetadata(file_metadata) = &mut metadata_sector else {
             bail!("Inode {ino} is not a directory.");
         };
-        if offset > file_metadata.length_byte() {
-            bail!("Offset is too large for truncating (offset={offset}, file size={}.", file_metadata.length_byte());
-        } else if offset == file_metadata.length_byte() {
-            return Ok(());
+        match offset.cmp(&file_metadata.length_byte()) {
+            Ordering::Greater => bail!(
+                "Offset is too large for truncating (offset={offset}, file size={}.",
+                file_metadata.length_byte()
+            ),
+            Ordering::Equal => return Ok(()),
+            Ordering::Less => {}
         }
         file_metadata.set_length_byte(offset);
         let mut current_sector_id = file_metadata.first_sector();
