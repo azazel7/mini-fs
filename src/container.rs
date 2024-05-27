@@ -288,7 +288,6 @@ impl Container {
     ) -> Result<Vec<(u64, FileType, String)>> {
         let mut index = 0;
 
-        // eprintln!("Look for ino {ino}");
         let (_sector_id, sector) = self.find_ino_sector(ino)?;
         let Sector::DirMetadata(dir_metadata) = sector else {
             bail!("Inode {ino} is not a directory.");
@@ -345,7 +344,6 @@ impl Container {
         } else {
             //append_empty_sector
             let empty_sector_id = self.get_empty_sector()?;
-            eprintln!("Dir Data sector {empty_sector_id}");
             //set the sector data
             let mut sector = DirData::new();
             if let Some(previous_id) = dir_metadata.first_sector() {
@@ -379,7 +377,6 @@ impl Container {
         entry.name = heapless_name;
         entry.filetype = filetype;
 
-        eprintln!("base_sector {sector:?} - {}", sector.entries().len());
         //Write to container
         self.write_sector(sector_id, &base_sector)?;
 
@@ -391,7 +388,6 @@ impl Container {
             sector::FileType::Directory => Sector::DirMetadata(sector),
         };
         self.write_sector(empty_sector_id, &sector)?;
-        eprintln!("File metadata sector {empty_sector_id}");
 
         Ok(new_inode)
     }

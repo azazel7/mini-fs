@@ -57,7 +57,6 @@ impl Filesystem for FuseFs {
         }
     }
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
-        eprintln!("getattr {ino}");
         let Ok(ret) = self.container.getattr(ino) else {
             reply.error(ENOENT);
             return;
@@ -117,7 +116,6 @@ impl Filesystem for FuseFs {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        eprintln!("Call to readdir inode:{ino} - {offset}");
         let ret = self.container.readdir(ino, _fh, offset);
         match ret {
             Err(err) => {
